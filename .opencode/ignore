@@ -1,0 +1,11 @@
+node_modules/
+.next/
+dist/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.local
+*.log
+package-lock.json
+coverage/
