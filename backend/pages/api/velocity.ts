@@ -8,9 +8,10 @@ export default function handler(
 ) {
   runMigrations()
 
-  const { mode } = req.query
+  const { mode, project } = req.query
+  const projectName = typeof project === 'string' && project.length > 0 ? project : undefined
   const velMode = mode === 'issues' ? 'issues' : 'points'
 
-  const data = buildVelocity(velMode)
+  const data = buildVelocity(velMode, projectName)
   res.status(200).json({ mode: velMode, ...data })
 }

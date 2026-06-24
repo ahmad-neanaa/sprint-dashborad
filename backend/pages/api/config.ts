@@ -24,9 +24,7 @@ export default function handler(
     }
     const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)')
     const validKeys = [
-      'expected_hours', 'github_project_id', 'github_token',
-      'status_field', 'effort_field', 'actual_time_field',
-      'assignee_field', 'sprint_field', 'type_field',
+      'github_token', 'refresh_interval_hours',
     ]
     for (const [key, value] of Object.entries(body)) {
       if (validKeys.includes(key)) {

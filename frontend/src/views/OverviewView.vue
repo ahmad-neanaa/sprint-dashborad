@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch } from 'vue'
 import { useApi } from '@/composables/useApi'
+import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { OverviewResponse } from '@/types'
 
-const { getOverview, getSprints } = useApi()
+const { getOverview } = useApi()
 
-const sprint = ref('')
-const sprints = ref<string[]>([])
+const mode = ref<'points' | 'issues'>('points')
 const data = ref<OverviewResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -16,7 +16,7 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getOverview(sprint.value)
+    data.value = await getOverview(sprint.value, mode.value, project.value || undefined)
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -32,14 +32,8 @@ function statusClass(status: string): string {
   return ''
 }
 
-onMounted(async () => {
-  try {
-    const r = await getSprints()
-    sprints.value = r.sprints
-    if (r.sprints.length) sprint.value = r.sprints[0]
-  } catch {}
-  await load()
-})
+const { sprint, sprints, project } = useSprintSelector(load)
+watch(mode, load)
 </script>
 
 <template>
@@ -47,12 +41,16 @@ onMounted(async () => {
     <div class="overview-header">
       <h2>Sprint Overview</h2>
       <div class="overview-controls">
-        <label class="sprint-label">
-          Sprint
-          <select v-model="sprint" class="sprint-input" @change="load">
+        <div class="sprint-selector">
+          <label>Sprint:</label>
+          <select v-model="sprint" @change="load">
             <option v-for="s in sprints" :key="s" :value="s">{{ s }}</option>
           </select>
-        </label>
+        </div>
+        <div class="mode-toggle">
+          <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
+          <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+        </div>
         <button class="btn-refresh" @click="load" :disabled="loading">
           {{ loading ? 'Loading...' : 'Refresh' }}
         </button>
@@ -80,8 +78,8 @@ onMounted(async () => {
           <span class="card-value">{{ data.summary.toDo }}</span>
         </div>
         <div class="card card--green">
-          <span class="card-label">Delivered / Target</span>
-          <span class="card-value">{{ data.summary.effortDelivered.toFixed(0) }} / {{ data.summary.effortTotal }}</span>
+          <span class="card-label">{{ mode === 'points' ? 'Delivered / Target' : 'Done / Total' }}</span>
+          <span class="card-value">{{ mode === 'points' ? data.summary.effortDelivered.toFixed(0) : data.summary.doneStories }} / {{ mode === 'points' ? data.summary.effortTotal : data.summary.totalStories }}</span>
           <span class="card-sub">{{ data.summary.percentComplete }}%</span>
         </div>
         <div class="card">
@@ -145,27 +143,6 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
   align-items: center;
-}
-
-.sprint-label {
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sprint-input {
-  padding: 6px 10px;
-  border: 1px solid #dfe1e6;
-  border-radius: 3px;
-  font-size: 14px;
-  width: 160px;
-  outline: none;
-}
-
-.sprint-input:focus {
-  border-color: #0747a6;
 }
 
 .btn-refresh {

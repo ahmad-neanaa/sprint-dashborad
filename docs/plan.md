@@ -89,19 +89,9 @@ All 13 original feature tasks are complete. This plan covers the 5 remaining gap
 
 ---
 
-## Gap 4 — Mode Toggle in 3 More Views (Priority: Low-Medium)
+## Gap 4 — Mode Toggle in 3 More Views (Priority: Low-Medium) ✅
 
-### Problem
-- `OverviewView`, `TeamView`, `TimeAnalysisView` have no `points|issues` mode toggle.
-- Backend routes `overview.ts`, `team.ts`, `timeanalysis.ts` ignore the `mode` param.
-
-### Tasks
-1. Update `backend/pages/api/overview.ts` — accept `mode` query param, route to `buildOverview(db, sprint, mode)`
-2. Update `backend/pages/api/team.ts` — same pattern
-3. Update `backend/pages/api/timeanalysis.ts` — same pattern
-4. Update calculator functions in `backend/lib/calculators.ts` to accept `mode` where applicable
-5. Add mode toggle UI (`<button>` pair) to `OverviewView.vue`, `TeamView.vue`, `TimeAnalysisView.vue`
-6. Wire `watch(mode, load)` in each view
+**Done 2026-06-24**: All 3 views (Overview, Team, TimeAnalysis) have mode toggle. Backend routes and calculators accept `mode` param. Type files, useApi, charts/labels all mode-aware.
 
 ---
 
@@ -124,11 +114,11 @@ All 13 original feature tasks are complete. This plan covers the 5 remaining gap
 
 ## Execution Order
 
-1. **Gap 1** — Dynamic sprint list (unblocks dropdowns before ingestion is live)
-2. **Gap 2** — GitHub ingestion (populates the sprints table the dropdowns depend on)
-3. **Gap 3** — Unit tests (validate calculators with known seed data)
-4. **Gap 4** — Mode toggle in 3 remaining views
-5. **Gap 5** — Auto-refresh / cron
+1. **Gap 1** — Dynamic sprint list ✅
+2. **Gap 2** — GitHub ingestion ✅
+3. **Gap 3** — Unit tests ⏳
+4. **Gap 4** — Mode toggle in 3 remaining views ✅
+5. **Gap 5** — Auto-refresh / cron ⏳
 
 ---
 

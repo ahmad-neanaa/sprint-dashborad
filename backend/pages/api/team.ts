@@ -8,9 +8,11 @@ export default function handler(
 ) {
   runMigrations()
 
-  const { sprint } = req.query
+  const { sprint, project, mode } = req.query
   const sprintTitle = typeof sprint === 'string' && sprint.length > 0 ? sprint : undefined
+  const projectName = typeof project === 'string' && project.length > 0 ? project : undefined
+  const dataMode: 'points' | 'issues' = mode === 'issues' ? 'issues' : 'points'
 
-  const data = buildTeamStats(sprintTitle)
-  res.status(200).json({ ...data })
+  const data = buildTeamStats(sprintTitle, dataMode, projectName)
+  res.status(200).json({ mode: dataMode, ...data })
 }

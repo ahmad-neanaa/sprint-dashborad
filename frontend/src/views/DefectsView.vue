@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Bar, Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -14,36 +14,27 @@ import {
   Filler,
 } from 'chart.js'
 import { useApi } from '@/composables/useApi'
+import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { DefectResponse } from '@/types'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
-const { getDefects, getSprints } = useApi()
+const { getDefects } = useApi()
 
-const sprintTitle = ref('')
 const data = ref<DefectResponse | null>(null)
 const error = ref('')
-const sprintList = ref<string[]>([])
 
 async function load() {
   try {
-    data.value = await getDefects(sprintTitle.value)
+    data.value = await getDefects(sprint.value, project.value || undefined)
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-onMounted(async () => {
-  try {
-    const r = await getSprints()
-    sprintList.value = r.sprints
-    if (r.sprints.length) sprintTitle.value = r.sprints[0]
-  } catch {}
-  await load()
-})
-
-watch(sprintTitle, load)
+const { sprint, sprints: sprintList, project } = useSprintSelector(load)
+watch(sprint, load)
 
 const trendChartData = computed(() => {
   if (!data.value) return { labels: [], datasets: [] }
@@ -135,7 +126,7 @@ function statusClass(s: string) {
       <h2 class="view-title">Defects</h2>
       <div class="sprint-selector" v-if="sprintList.length > 0">
         <label for="sprint">Sprint:</label>
-        <select id="sprint" v-model="sprintTitle">
+        <select id="sprint" v-model="sprint">
           <option v-for="s in sprintList" :key="s" :value="s">{{ s }}</option>
         </select>
       </div>
@@ -168,14 +159,14 @@ function statusClass(s: string) {
 
     <div class="card" style="margin-top: 24px" v-if="data && data.trend.length > 0">
       <h3 class="card-title">Defect Rate Trend</h3>
-      <div style="height: 250px">
+      <div class="chart-wrapper">
         <Line :data="trendChartData" :options="trendChartOptions" />
       </div>
     </div>
 
     <div class="card" style="margin-top: 24px" v-if="data && data.assignees.length > 0">
       <h3 class="card-title">Defects by Assignee</h3>
-      <div style="height: 250px">
+      <div class="chart-wrapper">
         <Bar :data="assigneeChartData" :options="assigneeChartOptions" />
       </div>
     </div>
@@ -231,3 +222,9 @@ function statusClass(s: string) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.chart-wrapper {
+  height: 250px;
+}
+</style>

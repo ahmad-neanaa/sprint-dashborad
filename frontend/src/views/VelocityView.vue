@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,6 +13,7 @@ import {
 } from 'chart.js'
 import { Bar } from 'vue-chartjs'
 import { useApi } from '@/composables/useApi'
+import { useProjectWatcher } from '@/composables/useSprintSelector'
 import type { VelocityResponse, BurndownItem } from '@/types'
 
 ChartJS.register(
@@ -115,7 +116,7 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getVelocity(mode.value)
+    data.value = await getVelocity(mode.value, project.value || undefined)
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -129,12 +130,8 @@ function diffClass(val: number): string {
   return ''
 }
 
-function toggleMode() {
-  mode.value = mode.value === 'points' ? 'issues' : 'points'
-  load()
-}
-
-onMounted(load)
+const { project } = useProjectWatcher(load)
+watch(mode, load)
 </script>
 
 <template>
@@ -142,9 +139,10 @@ onMounted(load)
     <div class="velocity-header">
       <h2>Velocity</h2>
       <div class="velocity-controls">
-        <button class="btn-toggle" @click="toggleMode">
-          Mode: {{ mode === 'points' ? 'Effort (hrs)' : 'Issue Count' }}
-        </button>
+        <div class="mode-toggle">
+          <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
+          <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+        </div>
         <button class="btn-refresh" @click="load" :disabled="loading">
           {{ loading ? 'Loading...' : 'Refresh' }}
         </button>
@@ -262,7 +260,6 @@ onMounted(load)
   gap: 10px;
 }
 
-.btn-toggle,
 .btn-refresh {
   padding: 7px 14px;
   border: 1px solid #dfe1e6;
@@ -273,7 +270,6 @@ onMounted(load)
   transition: background 0.2s;
 }
 
-.btn-toggle:hover,
 .btn-refresh:hover {
   background: #f4f5f7;
 }

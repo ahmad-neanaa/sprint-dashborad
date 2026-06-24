@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Bar } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -11,37 +11,29 @@ import {
   Legend,
 } from 'chart.js'
 import { useApi } from '@/composables/useApi'
-import type { CommitAssigneeResponse, CommitAssigneeStat } from '@/types'
+import { useSprintSelector } from '@/composables/useSprintSelector'
+import type { CommitAssigneeResponse } from '@/types'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
-const { getCommitmentAssignee, getSprints } = useApi()
+const { getCommitmentAssignee } = useApi()
 
 const mode = ref<'points' | 'issues'>('points')
-const sprintTitle = ref('')
 const data = ref<CommitAssigneeResponse | null>(null)
 const error = ref('')
-const sprintList = ref<string[]>([])
 
 async function load() {
-  if (!sprintTitle.value) return
+  if (!sprint.value) return
   try {
-    data.value = await getCommitmentAssignee(sprintTitle.value, mode.value)
+    data.value = await getCommitmentAssignee(sprint.value, mode.value, project.value || undefined)
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-onMounted(async () => {
-  try {
-    const r = await getSprints()
-    sprintList.value = r.sprints
-    if (r.sprints.length) sprintTitle.value = r.sprints[0]
-  } catch {}
-  await load()
-})
-watch([mode, sprintTitle], load)
+const { sprint, sprints: sprintList, project } = useSprintSelector(load)
+watch([mode, sprint], load)
 
 const chartData = computed(() => {
   if (!data.value) return { labels: [], datasets: [] }
@@ -125,7 +117,7 @@ function statusClass(s: string) {
 
     <div class="sprint-selector" v-if="sprintList.length > 0">
       <label>Sprint:</label>
-      <select v-model="sprintTitle">
+      <select v-model="sprint">
         <option v-for="s in sprintList" :key="s" :value="s">{{ s }}</option>
       </select>
     </div>

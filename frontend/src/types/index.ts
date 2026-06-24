@@ -69,6 +69,7 @@ export interface TeamSummary {
 }
 
 export interface TeamResponse {
+  mode: 'points' | 'issues'
   summary: TeamSummary
   members: TeamMemberStat[]
 }
@@ -87,6 +88,7 @@ export interface OverviewSummary {
 
 export interface OverviewResponse {
   sprint: string
+  mode: 'points' | 'issues'
   summary: OverviewSummary
   stories: BurndownItem[]
 }
@@ -122,6 +124,7 @@ export interface TimeAnalysisSummary {
 
 export interface TimeAnalysisResponse {
   sprint: string
+  mode: 'points' | 'issues'
   summary: TimeAnalysisSummary
   members: TimeAnalysisMember[]
   issues: TimeAnalysisIssue[]
@@ -333,6 +336,25 @@ export interface KpiReviewAverages {
 export interface KpiReviewResponse {
   sprints: KpiReviewEntry[]
   averages: KpiReviewAverages
+}
+
+export interface Project {
+  id: number
+  name: string
+  github_project_id: string
+  github_token: string
+  expected_hours: number
+  status_field: string
+  effort_field: string
+  actual_time_field: string
+  assignee_field: string
+  sprint_field: string
+  type_field: string
+  done_value: string
+  in_progress_value: string
+  story_value: string
+  points_field: string
+  created_at: string
 }
 
 export interface ConfigResponse {

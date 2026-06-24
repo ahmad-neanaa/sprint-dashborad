@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,6 +13,7 @@ import {
 } from 'chart.js'
 import { Line } from 'vue-chartjs'
 import { useApi } from '@/composables/useApi'
+import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { BurndownResponse } from '@/types'
 
 ChartJS.register(
@@ -26,10 +27,8 @@ ChartJS.register(
   Filler,
 )
 
-const { getBurndown, getSprints } = useApi()
+const { getBurndown } = useApi()
 
-const sprint = ref('')
-const sprints = ref<string[]>([])
 const mode = ref<'points' | 'issues'>('points')
 const data = ref<BurndownResponse | null>(null)
 const loading = ref(false)
@@ -105,17 +104,12 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getBurndown(sprint.value, mode.value)
+    data.value = await getBurndown(sprint.value, mode.value, project.value || undefined)
   } catch (e) {
     error.value = String(e)
   } finally {
     loading.value = false
   }
-}
-
-function toggleMode() {
-  mode.value = mode.value === 'points' ? 'issues' : 'points'
-  load()
 }
 
 function statusClass(status: string): string {
@@ -126,14 +120,8 @@ function statusClass(status: string): string {
   return ''
 }
 
-onMounted(async () => {
-  try {
-    const r = await getSprints()
-    sprints.value = r.sprints
-    if (r.sprints.length) sprint.value = r.sprints[0]
-  } catch {}
-  await load()
-})
+const { sprint, sprints, project } = useSprintSelector(load)
+watch(mode, load)
 </script>
 
 <template>
@@ -141,15 +129,16 @@ onMounted(async () => {
     <div class="burndown-header">
       <h2>Burndown</h2>
       <div class="burndown-controls">
-        <label class="sprint-label">
-          Sprint
-          <select v-model="sprint" @change="load" class="sprint-input">
+        <div class="sprint-selector">
+          <label>Sprint:</label>
+          <select v-model="sprint" @change="load">
             <option v-for="s in sprints" :key="s" :value="s">{{ s }}</option>
           </select>
-        </label>
-        <button class="btn-toggle" @click="toggleMode" :title="mode === 'points' ? 'Switch to issue count' : 'Switch to effort hours'">
-          Mode: {{ mode === 'points' ? 'Effort (hrs)' : 'Issue Count' }}
-        </button>
+        </div>
+        <div class="mode-toggle">
+          <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
+          <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+        </div>
         <button class="btn-refresh" @click="load" :disabled="loading">
           {{ loading ? 'Loading...' : 'Refresh' }}
         </button>
@@ -251,28 +240,6 @@ onMounted(async () => {
   gap: 10px;
 }
 
-.sprint-label {
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sprint-input {
-  padding: 6px 10px;
-  border: 1px solid #dfe1e6;
-  border-radius: 3px;
-  font-size: 14px;
-  width: 140px;
-  outline: none;
-}
-
-.sprint-input:focus {
-  border-color: #0747a6;
-}
-
-.btn-toggle,
 .btn-refresh {
   padding: 7px 14px;
   border: 1px solid #dfe1e6;
@@ -283,7 +250,6 @@ onMounted(async () => {
   transition: background 0.2s;
 }
 
-.btn-toggle:hover,
 .btn-refresh:hover {
   background: #f4f5f7;
 }

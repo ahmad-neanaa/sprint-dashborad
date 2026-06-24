@@ -8,13 +8,14 @@ export default function handler(
 ) {
   runMigrations()
 
-  const { sprint } = req.query
+  const { sprint, project } = req.query
+  const projectName = typeof project === 'string' && project.length > 0 ? project : undefined
 
   if (!sprint || typeof sprint !== 'string') {
     return res.status(400).json({ error: 'Missing sprint parameter' })
   }
 
-  const data = buildStability(sprint)
+  const data = buildStability(sprint, projectName)
   if (!data) {
     return res.status(404).json({ error: `Sprint "${sprint}" not found` })
   }

@@ -75,6 +75,9 @@ When building the backend, refactor them into separate `lib/calculators.ts` modu
 - Write integration tests for API endpoints (mocking GitHub if needed).
 - Do not over‑engineer; focus on correctness first.
 
+### 9. Project memory
+- Always read `docs/memory.md` first — it contains the current state, schema, config keys, API endpoints, KPI thresholds, and implementation status.
+
 ## Interacting with the Agent
 - When you ask the agent to implement a feature, it will propose changes to both frontend and backend.
 - The agent will respect the folder structure and TypeScript conventions.

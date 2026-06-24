@@ -8,17 +8,19 @@ export default function handler(
 ) {
   runMigrations()
 
-  const { sprint } = req.query
+  const { sprint, project, mode } = req.query
+  const projectName = typeof project === 'string' && project.length > 0 ? project : undefined
+  const dataMode: 'points' | 'issues' = mode === 'issues' ? 'issues' : 'points'
 
   if (!sprint || typeof sprint !== 'string') {
     return res.status(400).json({ error: 'Missing or invalid "sprint" query parameter' })
   }
 
-  const data = buildTimeAnalysis(sprint)
+  const data = buildTimeAnalysis(sprint, dataMode, projectName)
 
   if (!data) {
     return res.status(404).json({ error: `Sprint "${sprint}" not found` })
   }
 
-  res.status(200).json({ sprint, ...data })
+  res.status(200).json({ sprint, mode: dataMode, ...data })
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Bar } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -11,6 +11,7 @@ import {
   Legend,
 } from 'chart.js'
 import { useApi } from '@/composables/useApi'
+import { useProjectWatcher } from '@/composables/useSprintSelector'
 import type { CommitmentResponse, CommitmentSprint } from '@/types'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
@@ -23,14 +24,14 @@ const error = ref('')
 
 async function load() {
   try {
-    data.value = await getCommitment(mode.value)
+    data.value = await getCommitment(mode.value, project.value || undefined)
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-onMounted(load)
+const { project } = useProjectWatcher(load)
 watch(mode, load)
 
 const chartData = computed(() => {

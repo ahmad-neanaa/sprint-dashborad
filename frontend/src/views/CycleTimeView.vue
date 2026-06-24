@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,14 +13,12 @@ import {
 } from 'chart.js'
 import { Line, Bar } from 'vue-chartjs'
 import { useApi } from '@/composables/useApi'
+import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { CycleTimeResponse } from '@/types'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend)
 
-const { getCycleTime, getSprints } = useApi()
-
-const sprint = ref('')
-const sprints = ref<string[]>([])
+const { getCycleTime } = useApi()
 const data = ref<CycleTimeResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -112,7 +110,7 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getCycleTime(sprint.value)
+    data.value = await getCycleTime(sprint.value, project.value || undefined)
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -120,14 +118,8 @@ async function load() {
   }
 }
 
-onMounted(async () => {
-  try {
-    const r = await getSprints()
-    sprints.value = r.sprints
-    if (r.sprints.length) sprint.value = r.sprints[0]
-  } catch {}
-  await load()
-})
+const { sprint, sprints, project } = useSprintSelector(load)
+watch(sprint, load)
 </script>
 
 <template>
@@ -135,12 +127,12 @@ onMounted(async () => {
     <div class="ct-header">
       <h2>Cycle Time</h2>
       <div class="ct-controls">
-        <label class="sprint-label">
-          Sprint
-          <select v-model="sprint" class="sprint-input" @change="load">
+        <div class="sprint-selector">
+          <label>Sprint:</label>
+          <select v-model="sprint" @change="load">
             <option v-for="s in sprints" :key="s" :value="s">{{ s }}</option>
           </select>
-        </label>
+        </div>
         <button class="btn-refresh" @click="load" :disabled="loading">{{ loading ? 'Loading...' : 'Refresh' }}</button>
       </div>
     </div>
@@ -230,9 +222,7 @@ onMounted(async () => {
 .ct-page { display: flex; flex-direction: column; gap: 20px; }
 .ct-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .ct-controls { display: flex; gap: 10px; align-items: center; }
-.sprint-label { font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
-.sprint-input { padding: 6px 10px; border: 1px solid #dfe1e6; border-radius: 3px; font-size: 14px; width: 160px; outline: none; }
-.sprint-input:focus { border-color: #0747a6; }
+
 .btn-refresh { padding: 7px 14px; border: 1px solid #dfe1e6; background: #fff; border-radius: 3px; font-size: 13px; cursor: pointer; }
 .btn-refresh:hover { background: #f4f5f7; }
 .btn-refresh:disabled { opacity: 0.6; cursor: not-allowed; }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,14 +11,14 @@ import {
 } from 'chart.js'
 import { Bar } from 'vue-chartjs'
 import { useApi } from '@/composables/useApi'
+import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { TimeAnalysisResponse } from '@/types'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
-const { getTimeAnalysis, getSprints } = useApi()
+const { getTimeAnalysis } = useApi()
 
-const sprint = ref('')
-const sprints = ref<string[]>([])
+const mode = ref<'points' | 'issues'>('points')
 const data = ref<TimeAnalysisResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -43,13 +43,13 @@ const chartData = computed(() => {
     labels,
     datasets: [
       {
-        label: 'Estimated',
+        label: mode.value === 'points' ? 'Estimated (hrs)' : 'Items',
         data: data.value.members.map((m) => m.estimated),
         backgroundColor: '#0747a6',
         borderRadius: 3,
       },
       {
-        label: 'Actual',
+        label: mode.value === 'points' ? 'Actual (hrs)' : 'Closed',
         data: data.value.members.map((m) => m.actual),
         backgroundColor: '#00875a',
         borderRadius: 3,
@@ -58,14 +58,14 @@ const chartData = computed(() => {
   }
 })
 
-const chartOptions = {
+const chartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
     legend: { position: 'bottom' as const },
     tooltip: {
       callbacks: {
-        label: (ctx: any) => `${ctx.dataset.label}: ${ctx.parsed.y} hrs`,
+        label: (ctx: any) => `${ctx.dataset.label}: ${ctx.parsed.y}${mode.value === 'points' ? ' hrs' : ''}`,
       },
     },
   },
@@ -73,17 +73,17 @@ const chartOptions = {
     x: { grid: { display: false } },
     y: {
       beginAtZero: true,
-      title: { display: true, text: 'Hours' },
+      title: { display: true, text: mode.value === 'points' ? 'Hours' : 'Issues' },
     },
   },
-}
+}))
 
 async function load() {
   loading.value = true
   error.value = ''
   data.value = null
   try {
-    data.value = await getTimeAnalysis(sprint.value)
+    data.value = await getTimeAnalysis(sprint.value, mode.value, project.value || undefined)
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -103,15 +103,13 @@ function varianceClass(v: number | null): string {
   if (v == null) return ''
   return v > 0 ? 'var-neg' : v < 0 ? 'var-pos' : ''
 }
+function issuesVarianceClass(v: number | null): string {
+  if (v == null) return ''
+  return v < 0 ? 'var-neg' : ''
+}
 
-onMounted(async () => {
-  try {
-    const r = await getSprints()
-    sprints.value = r.sprints
-    if (r.sprints.length) sprint.value = r.sprints[0]
-  } catch {}
-  await load()
-})
+const { sprint, sprints, project } = useSprintSelector(load)
+watch(mode, load)
 </script>
 
 <template>
@@ -119,12 +117,16 @@ onMounted(async () => {
     <div class="ta-header">
       <h2>Time Analysis</h2>
       <div class="ta-controls">
-        <label class="sprint-label">
-          Sprint
-          <select v-model="sprint" class="sprint-input" @change="load">
+        <div class="sprint-selector">
+          <label>Sprint:</label>
+          <select v-model="sprint" @change="load">
             <option v-for="s in sprints" :key="s" :value="s">{{ s }}</option>
           </select>
-        </label>
+        </div>
+        <div class="mode-toggle">
+          <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
+          <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+        </div>
         <button class="btn-refresh" @click="load" :disabled="loading">
           {{ loading ? 'Loading...' : 'Refresh' }}
         </button>
@@ -136,16 +138,16 @@ onMounted(async () => {
     <template v-if="data">
       <div class="summary-cards">
         <div class="card card--blue">
-          <span class="card-label">Total Estimated</span>
-          <span class="card-value">{{ data.summary.totalEstimated.toFixed(1) }}</span>
+          <span class="card-label">{{ mode === 'points' ? 'Total Estimated' : 'Total Items' }}</span>
+          <span class="card-value">{{ mode === 'points' ? data.summary.totalEstimated.toFixed(1) : data.summary.totalEstimated }}</span>
         </div>
         <div class="card card--green">
-          <span class="card-label">Total Actual</span>
-          <span class="card-value">{{ data.summary.totalActual.toFixed(1) }}</span>
+          <span class="card-label">{{ mode === 'points' ? 'Total Actual' : 'Total Closed' }}</span>
+          <span class="card-value">{{ mode === 'points' ? data.summary.totalActual.toFixed(1) : data.summary.totalActual }}</span>
         </div>
         <div class="card" :class="data.summary.variance > 0 ? 'card--red' : 'card--green'">
-          <span class="card-label">Variance</span>
-          <span class="card-value">{{ data.summary.variance > 0 ? '+' : '' }}{{ data.summary.variance.toFixed(1) }}</span>
+          <span class="card-label">{{ mode === 'points' ? 'Variance' : 'Open Items' }}</span>
+          <span class="card-value">{{ mode === 'points' ? (data.summary.variance > 0 ? '+' : '') + data.summary.variance.toFixed(1) : Math.abs(data.summary.variance) }}</span>
         </div>
         <div class="card">
           <span class="card-label">Issues Tracked</span>
@@ -164,9 +166,9 @@ onMounted(async () => {
               <th></th>
               <th>Assignee</th>
               <th>Issues</th>
-              <th>Estimated</th>
-              <th>Actual</th>
-              <th>Variance</th>
+              <th>{{ mode === 'points' ? 'Estimated' : 'Items' }}</th>
+              <th>{{ mode === 'points' ? 'Actual' : 'Closed' }}</th>
+              <th>{{ mode === 'points' ? 'Variance' : 'Open' }}</th>
             </tr>
           </thead>
           <tbody>
@@ -179,7 +181,7 @@ onMounted(async () => {
                 <td>{{ m.count }}</td>
                 <td>{{ m.estimated.toFixed(1) }}</td>
                 <td>{{ m.actual.toFixed(1) }}</td>
-                <td :class="varianceClass(m.variance)">{{ m.variance > 0 ? '+' : '' }}{{ m.variance.toFixed(1) }}</td>
+                <td :class="mode === 'issues' ? issuesVarianceClass(m.variance) : varianceClass(m.variance)">{{ mode === 'issues' ? m.variance : (m.variance > 0 ? '+' : '') + m.variance.toFixed(1) }}</td>
               </tr>
               <tr v-if="isMemberOpen(m.assignee) && m.items.length" class="detail-row">
                 <td colspan="6">
@@ -232,9 +234,9 @@ onMounted(async () => {
                 <th>Type</th>
                 <th>Status</th>
                 <th>Assignee</th>
-                <th>Estimated</th>
-                <th>Actual</th>
-                <th>Variance</th>
+                <th>{{ mode === 'points' ? 'Estimated' : 'Item' }}</th>
+                <th>{{ mode === 'points' ? 'Actual' : 'Closed' }}</th>
+                <th>{{ mode === 'points' ? 'Variance' : 'Open' }}</th>
                 <th>Source</th>
               </tr>
             </thead>
@@ -247,7 +249,7 @@ onMounted(async () => {
                 <td>{{ item.assignee ?? '-' }}</td>
                 <td>{{ item.effort ?? '-' }}</td>
                 <td>{{ item.actual_time ?? '-' }}</td>
-                <td :class="varianceClass(item.variance)">{{ item.variance != null ? (item.variance > 0 ? '+' : '') + item.variance.toFixed(1) : '-' }}</td>
+                <td :class="mode === 'issues' ? issuesVarianceClass(item.variance) : varianceClass(item.variance)">{{ item.variance != null ? (mode === 'issues' ? (item.variance < 0 ? 'Open' : 'Done') : (item.variance > 0 ? '+' : '') + item.variance.toFixed(1)) : '-' }}</td>
                 <td>
                   <span v-if="item.source === 'MAN'" class="source-badge source-man">MAN</span>
                   <span v-else-if="item.source === 'AUTO'" class="source-badge source-auto">AUTO</span>
@@ -270,12 +272,6 @@ onMounted(async () => {
 .ta-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 
 .ta-controls { display: flex; gap: 10px; align-items: center; }
-
-.sprint-label { font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
-
-.sprint-input { padding: 6px 10px; border: 1px solid #dfe1e6; border-radius: 3px; font-size: 14px; width: 160px; outline: none; }
-
-.sprint-input:focus { border-color: #0747a6; }
 
 .btn-refresh { padding: 7px 14px; border: 1px solid #dfe1e6; background: #fff; border-radius: 3px; font-size: 13px; cursor: pointer; }
 

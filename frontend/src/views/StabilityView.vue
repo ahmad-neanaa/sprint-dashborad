@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -13,35 +13,27 @@ import {
   Filler,
 } from 'chart.js'
 import { useApi } from '@/composables/useApi'
+import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { StabilityResponse } from '@/types'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
-const { getStability, getSprints } = useApi()
+const { getStability } = useApi()
 
-const sprintTitle = ref('')
-const sprintList = ref<string[]>([])
 const data = ref<StabilityResponse | null>(null)
 const error = ref('')
 
 async function load() {
   try {
-    data.value = await getStability(sprintTitle.value)
+    data.value = await getStability(sprint.value, project.value || undefined)
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-onMounted(async () => {
-  try {
-    const r = await getSprints()
-    sprintList.value = r.sprints
-    if (r.sprints.length) sprintTitle.value = r.sprints[0]
-  } catch {}
-  await load()
-})
-watch(sprintTitle, load)
+const { sprint, sprints: sprintList, project } = useSprintSelector(load)
+watch(sprint, load)
 
 function ratingClass(rating: string) {
   if (rating === 'Good') return 'badge badge-green'
@@ -96,7 +88,7 @@ const chartOptions = computed(() => ({
       <h2 class="view-title">Stability</h2>
       <div class="sprint-selector" v-if="sprintList.length > 0">
         <label for="sprint">Sprint:</label>
-        <select id="sprint" v-model="sprintTitle">
+        <select id="sprint" v-model="sprint">
           <option v-for="s in sprintList" :key="s" :value="s">{{ s }}</option>
         </select>
       </div>
@@ -168,21 +160,166 @@ const chartOptions = computed(() => ({
 </template>
 
 <style scoped>
+.view-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.view-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #172b4d;
+}
+
+.error-banner {
+  background: #ffebe6;
+  color: #de350b;
+  padding: 12px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  border: 1px solid #ffbdad;
+}
+
 .overall-rating-card {
   text-align: center;
-  padding: 32px;
+  padding: 36px;
   border-radius: 12px;
-  margin-bottom: 24px;
   color: #fff;
   font-weight: 700;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
+
 .overall-rating-card.good { background: linear-gradient(135deg, #22c55e, #16a34a); }
 .overall-rating-card.fair { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .overall-rating-card.poor { background: linear-gradient(135deg, #ef4444, #dc2626); }
-.overall-label { font-size: 14px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.9; margin-bottom: 8px; }
-.overall-value { font-size: 48px; }
-.kpi-detail { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-.text-green { color: #22c55e; }
-.text-yellow { color: #f59e0b; }
-.text-red { color: #ef4444; }
+
+.overall-label {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  opacity: 0.9;
+  margin-bottom: 8px;
+}
+
+.overall-value {
+  font-size: 52px;
+  letter-spacing: 2px;
+}
+
+.kpi-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.kpi-card {
+  flex: 1;
+  min-width: 180px;
+  background: #fff;
+  border-radius: 6px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 3px solid transparent;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.kpi-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transform: translateY(-1px);
+}
+
+.kpi-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #5e6c84;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #172b4d;
+}
+
+.kpi-detail {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.badge-green { background: #dcfce7; color: #16a34a; }
+.badge-yellow { background: #fef3c7; color: #d97706; }
+.badge-red { background: #fee2e2; color: #dc2626; }
+
+.card {
+  background: #fff;
+  border-radius: 6px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #172b4d;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.styled-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.styled-table th,
+.styled-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 13px;
+}
+
+.styled-table th {
+  background: #f4f5f7;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #5e6c84;
+  white-space: nowrap;
+}
+
+.styled-table tbody tr:hover {
+  background: #f8f9ff;
+}
+
+.styled-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.text-green { color: #22c55e; font-weight: 600; }
+.text-yellow { color: #f59e0b; font-weight: 600; }
+.text-red { color: #ef4444; font-weight: 600; }
 </style>

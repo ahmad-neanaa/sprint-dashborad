@@ -1,33 +1,25 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useApi } from '@/composables/useApi'
-import type { ScorecardResponse, ScorecardKpi } from '@/types'
+import { useSprintSelector } from '@/composables/useSprintSelector'
+import type { ScorecardResponse } from '@/types'
 
-const { getScorecard, getSprints } = useApi()
+const { getScorecard } = useApi()
 
-const sprintTitle = ref('')
-const sprintList = ref<string[]>([])
 const data = ref<ScorecardResponse | null>(null)
 const error = ref('')
 
 async function load() {
   try {
-    data.value = await getScorecard(sprintTitle.value)
+    data.value = await getScorecard(sprint.value, project.value || undefined)
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-onMounted(async () => {
-  try {
-    const r = await getSprints()
-    sprintList.value = r.sprints
-    if (r.sprints.length) sprintTitle.value = r.sprints[0]
-  } catch {}
-  await load()
-})
-watch(sprintTitle, load)
+const { sprint, sprints: sprintList, project } = useSprintSelector(load)
+watch(sprint, load)
 
 function ratingClass(rating: string) {
   if (rating === 'Good') return 'badge badge-green'
@@ -48,7 +40,7 @@ function ratingIcon(rating: string) {
       <h2 class="view-title">Scorecard</h2>
       <div class="sprint-selector" v-if="sprintList.length > 0">
         <label for="sprint">Sprint:</label>
-        <select id="sprint" v-model="sprintTitle">
+        <select id="sprint" v-model="sprint">
           <option v-for="s in sprintList" :key="s" :value="s">{{ s }}</option>
         </select>
       </div>
@@ -92,17 +84,17 @@ function ratingIcon(rating: string) {
 <style scoped>
 .overall-rating-card {
   text-align: center;
-  padding: 32px;
+  padding: 36px;
   border-radius: 12px;
-  margin-bottom: 24px;
   color: #fff;
   font-weight: 700;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
 .overall-rating-card.good { background: linear-gradient(135deg, #22c55e, #16a34a); }
 .overall-rating-card.fair { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .overall-rating-card.poor { background: linear-gradient(135deg, #ef4444, #dc2626); }
 .overall-label { font-size: 14px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.9; margin-bottom: 8px; }
-.overall-value { font-size: 48px; }
+.overall-value { font-size: 52px; letter-spacing: 2px; }
 
 .kpi-grid {
   display: grid;

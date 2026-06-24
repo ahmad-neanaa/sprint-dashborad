@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Bar } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -11,6 +11,7 @@ import {
   Legend,
 } from 'chart.js'
 import { useApi } from '@/composables/useApi'
+import { useProjectWatcher } from '@/composables/useSprintSelector'
 import type { KpiReviewResponse, KpiReviewEntry } from '@/types'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
@@ -22,14 +23,14 @@ const error = ref('')
 
 async function load() {
   try {
-    data.value = await getKpiReview()
+    data.value = await getKpiReview(project.value || undefined)
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-onMounted(load)
+const { project } = useProjectWatcher(load)
 
 function ratingClass(rating: string) {
   if (rating === 'Good') return 'badge badge-green'
@@ -163,9 +164,9 @@ function cellDiff(entries: KpiReviewEntry[], idx: number, key: keyof Pick<KpiRev
         <div class="kpi-card">
           <div class="kpi-label">Trend</div>
           <div class="kpi-value">
-            <span v-if="trendDir === 'up'" class="text-green">\u2191 Improving</span>
-            <span v-else-if="trendDir === 'down'" class="text-red">\u2193 Declining</span>
-            <span v-else>\u2192 Stable</span>
+            <span v-if="trendDir === 'up'" class="text-green">↑ Improving</span>
+            <span v-else-if="trendDir === 'down'" class="text-red">↓ Declining</span>
+            <span v-else>→ Stable</span>
           </div>
         </div>
         <div class="kpi-card">
@@ -257,32 +258,32 @@ function cellDiff(entries: KpiReviewEntry[], idx: number, key: keyof Pick<KpiRev
           <div class="threshold-item">
             <div class="threshold-label">Delivery Rate</div>
             <div class="threshold-bars">
-              <span class="bar good">\u226585%</span>
-              <span class="bar fair">\u226570%</span>
+              <span class="bar good">≥85%</span>
+              <span class="bar fair">≥70%</span>
               <span class="bar poor">&lt;70%</span>
             </div>
           </div>
           <div class="threshold-item">
             <div class="threshold-label">Cycle Time</div>
             <div class="threshold-bars">
-              <span class="bar good">\u22643d</span>
-              <span class="bar fair">\u22647d</span>
+              <span class="bar good">≤3d</span>
+              <span class="bar fair">≤7d</span>
               <span class="bar poor">&gt;7d</span>
             </div>
           </div>
           <div class="threshold-item">
             <div class="threshold-label">Defect Rate</div>
             <div class="threshold-bars">
-              <span class="bar good">\u226415%</span>
-              <span class="bar fair">\u226430%</span>
+              <span class="bar good">≤15%</span>
+              <span class="bar fair">≤30%</span>
               <span class="bar poor">&gt;30%</span>
             </div>
           </div>
           <div class="threshold-item">
             <div class="threshold-label">Estimation Accuracy</div>
             <div class="threshold-bars">
-              <span class="bar good">\u226510% var</span>
-              <span class="bar fair">\u226525% var</span>
+              <span class="bar good">≤10% var</span>
+              <span class="bar fair">≤25% var</span>
               <span class="bar poor">&gt;25% var</span>
             </div>
           </div>
@@ -294,8 +295,6 @@ function cellDiff(entries: KpiReviewEntry[], idx: number, key: keyof Pick<KpiRev
 
 <style scoped>
 .kpi-detail { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-.text-green { color: #22c55e; }
-.text-red { color: #ef4444; }
 .table-wrapper { overflow-x: auto; }
 .styled-table.compact td, .styled-table.compact th { padding: 8px 10px; font-size: 13px; }
 .styled-table.compact tbody tr:hover { background: #f0f4ff; }

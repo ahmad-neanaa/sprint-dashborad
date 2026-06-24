@@ -3,11 +3,14 @@ import { runMigrations } from '../../lib/db'
 import { buildKpiReview } from '../../lib/calculators'
 
 export default function handler(
-  _req: NextApiRequest,
+  req: NextApiRequest,
   res: NextApiResponse
 ) {
   runMigrations()
 
-  const data = buildKpiReview()
+  const { project } = req.query
+  const projectName = typeof project === 'string' && project.length > 0 ? project : undefined
+
+  const data = buildKpiReview(projectName)
   res.status(200).json(data)
 }

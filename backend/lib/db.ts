@@ -22,4 +22,22 @@ export function runMigrations(): void {
     'utf-8'
   )
   database.exec(schema)
+
+  const applied = new Set(
+    (database.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map(r => r.name)
+  )
+
+  const migDir = path.join(process.cwd(), 'migrations')
+  if (!fs.existsSync(migDir)) return
+
+  const files = fs.readdirSync(migDir)
+    .filter(f => f.endsWith('.sql') && f !== 'schema.sql')
+    .sort()
+
+  for (const file of files) {
+    if (applied.has(file)) continue
+    const sql = fs.readFileSync(path.join(migDir, file), 'utf-8')
+    database.exec(sql)
+    database.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file)
+  }
 }

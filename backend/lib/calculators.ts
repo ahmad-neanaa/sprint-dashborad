@@ -1,5 +1,39 @@
 import { getDb } from './db'
 
+function getProjectId(projectName?: string): number | null {
+  if (!projectName) return null
+  const row = getDb().prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as { id: number } | undefined
+  return row?.id ?? null
+}
+
+function getProjectFilter(projectName?: string): { sql: string; params: unknown[] } {
+  const pid = getProjectId(projectName)
+  if (pid === null) return { sql: '', params: [] }
+  return { sql: 'AND s.project_id = ?', params: [pid] }
+}
+
+function getSprintProjectFilter(projectName?: string): { sql: string; params: unknown[] } {
+  const pid = getProjectId(projectName)
+  if (pid === null) return { sql: '', params: [] }
+  return { sql: 'AND i.project_id = ?', params: [pid] }
+}
+
+function getDoneValue(projectName?: string): string {
+  if (projectName) {
+    const row = getDb().prepare("SELECT done_value FROM projects WHERE name = ?").get(projectName) as { done_value: string } | undefined
+    if (row?.done_value) return row.done_value
+  }
+  return 'Done'
+}
+
+function getExpectedHours(projectName?: string): number {
+  if (projectName) {
+    const row = getDb().prepare("SELECT expected_hours FROM projects WHERE name = ?").get(projectName) as { expected_hours: number } | undefined
+    if (row) return row.expected_hours
+  }
+  return 0
+}
+
 export interface BurndownPoint {
   date: string
   ideal: number
@@ -33,27 +67,25 @@ export interface BurndownData {
   items: BurndownItem[]
 }
 
-export function buildBurndown(sprintTitle: string, mode: 'points' | 'issues' = 'points'): BurndownData | null {
+export function buildBurndown(sprintTitle: string, mode: 'points' | 'issues' = 'points', projectName?: string): BurndownData | null {
   const db = getDb()
+  const projectFilter = getProjectFilter(projectName)
   const sprint = db
-    .prepare('SELECT * FROM sprints WHERE title = ?')
-    .get(sprintTitle) as { start_date: string; duration: number } | undefined
+    .prepare(`SELECT * FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+    .get(sprintTitle, ...projectFilter.params) as { start_date: string; duration: number } | undefined
 
   if (!sprint) return null
 
+  const sprintProjectFilter = getSprintProjectFilter(projectName)
   const items = db
     .prepare(
-      `SELECT title, number, url, type, status, effort, actual_time, assignee, closed_at
-       FROM items
-       WHERE sprint_id = (SELECT id FROM sprints WHERE title = ?)`
+       `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+        FROM items i
+        WHERE i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}) ${sprintProjectFilter.sql}`
     )
-    .all(sprintTitle) as BurndownItem[]
+    .all(sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params) as BurndownItem[]
 
-  const config = db
-    .prepare("SELECT value FROM config WHERE key = 'expected_hours'")
-    .get() as { value: string } | undefined
-
-  const expectedHours = config ? parseFloat(config.value) : 0
+  const expectedHours = getExpectedHours(projectName)
   const startDate = new Date(sprint.start_date)
   const totalDays = sprint.duration
 
@@ -67,8 +99,9 @@ export function buildBurndown(sprintTitle: string, mode: 'points' | 'issues' = '
   )
   const daysLeft = totalDays - dayIndex
 
+  const doneStatus = getDoneValue(projectName)
   const total = mode === 'points' ? expectedHours : items.length
-  const closedItems = items.filter((i) => i.status === 'Done')
+  const closedItems = items.filter((i) => i.status === doneStatus)
   const completed = mode === 'points'
     ? closedItems.reduce((sum, i) => sum + (i.actual_time ?? 0), 0)
     : closedItems.length
@@ -129,28 +162,28 @@ export interface VelocityData {
   sprintCount: number
 }
 
-export function buildVelocity(mode: 'points' | 'issues' = 'points'): VelocityData {
+export function buildVelocity(mode: 'points' | 'issues' = 'points', projectName?: string): VelocityData {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
-  const sumExpr = mode === 'points'
+  const countExpr = mode === 'points'
     ? "COALESCE(SUM(i.actual_time), 0)"
-    : "COUNT(CASE WHEN i.status = 'Done' THEN 1 END)"
+    : "COUNT(CASE WHEN i.status = ? THEN 1 END)"
+  const bindParams: unknown[] = mode === 'issues' ? [doneStatus] : []
 
   const rows = db
     .prepare(
-      `SELECT s.title AS sprint, ${sumExpr} AS completed
+      `SELECT s.title AS sprint, ${countExpr} AS completed
        FROM sprints s
        LEFT JOIN items i ON i.sprint_id = s.id
+       WHERE 1=1 ${projectFilter.sql}
        GROUP BY s.id
        ORDER BY s.start_date`
     )
-    .all() as VelocityEntry[]
+    .all(...bindParams, ...projectFilter.params) as VelocityEntry[]
 
-  const config = db
-    .prepare("SELECT value FROM config WHERE key = 'expected_hours'")
-    .get() as { value: string } | undefined
-
-  const target = config ? parseFloat(config.value) : 0
+  const target = getExpectedHours(projectName)
   const completedValues = rows.map((r) => r.completed)
   const average = completedValues.length > 0
     ? Math.round((completedValues.reduce((a, b) => a + b, 0) / completedValues.length) * 10) / 10
@@ -174,11 +207,11 @@ export function buildVelocity(mode: 'points' | 'issues' = 'points'): VelocityDat
       .prepare(
         `SELECT title, number, url, type, status, effort, actual_time, assignee, closed_at
          FROM items
-         WHERE sprint_id = (SELECT id FROM sprints WHERE title = ?)
-           AND status = 'Done'
+         WHERE sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql})
+           AND status = ?
          ORDER BY closed_at`
       )
-      .all(latest.sprint) as BurndownItem[]
+      .all(latest.sprint, ...projectFilter.params, doneStatus) as BurndownItem[]
 
     currentSprint = {
       title: latest.sprint,
@@ -249,35 +282,37 @@ export interface OverviewData {
   stories: OverviewStory[]
 }
 
-export function buildOverview(sprintTitle: string): OverviewData | null {
+export function buildOverview(sprintTitle: string, mode: 'points' | 'issues' = 'points', projectName?: string): OverviewData | null {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
   const sprint = db
-    .prepare('SELECT start_date, duration FROM sprints WHERE title = ?')
-    .get(sprintTitle) as { start_date: string; duration: number } | undefined
+    .prepare(`SELECT start_date, duration FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+    .get(sprintTitle, ...projectFilter.params) as { start_date: string; duration: number } | undefined
 
   if (!sprint) return null
 
+  const sprintProjectFilter = getSprintProjectFilter(projectName)
   const stories = db
     .prepare(
-      `SELECT title, number, url, type, status, effort, actual_time, assignee, closed_at
-       FROM items
-       WHERE sprint_id = (SELECT id FROM sprints WHERE title = ?)
-       ORDER BY status, type, title`
+       `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+        FROM items i
+        WHERE i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}) ${sprintProjectFilter.sql}
+        ORDER BY i.status, i.type, i.title`
     )
-    .all(sprintTitle) as OverviewStory[]
+    .all(sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params) as OverviewStory[]
 
-  const doneStories = stories.filter((s) => s.status === 'Done')
-  const inProgress = stories.filter((s) => s.status !== 'Done' && s.status !== 'To Do')
+  const doneStories = stories.filter((s) => s.status === doneStatus)
+  const inProgress = stories.filter((s) => s.status !== doneStatus && s.status !== 'To Do')
   const toDo = stories.filter((s) => s.status === 'To Do')
 
-  const effortDelivered = doneStories.reduce((sum, s) => sum + (s.actual_time ?? 0), 0)
+  const expectedHours = getExpectedHours(projectName)
 
-  const config = db
-    .prepare("SELECT value FROM config WHERE key = 'expected_hours'")
-    .get() as { value: string } | undefined
-
-  const expectedHours = config ? parseFloat(config.value) : 0
+  const effortDelivered = mode === 'points'
+    ? doneStories.reduce((sum, s) => sum + (s.actual_time ?? 0), 0)
+    : doneStories.length
+  const effortTotal = mode === 'points' ? expectedHours : stories.length
 
   const startDate = new Date(sprint.start_date)
   const now = new Date()
@@ -292,12 +327,12 @@ export function buildOverview(sprintTitle: string): OverviewData | null {
       doneStories: doneStories.length,
       inProgress: inProgress.length,
       toDo: toDo.length,
-      effortDelivered,
-      effortTotal: expectedHours,
+      effortDelivered: Math.round(effortDelivered * 10) / 10,
+      effortTotal,
       daysLeft: sprint.duration - dayIndex,
       daysTotal: sprint.duration,
-      percentComplete: expectedHours > 0
-        ? Math.round((effortDelivered / expectedHours) * 100)
+      percentComplete: effortTotal > 0
+        ? Math.round((effortDelivered / effortTotal) * 100)
         : 0,
     },
     stories,
@@ -348,23 +383,26 @@ export interface TimeAnalysisData {
   issues: TimeAnalysisIssue[]
 }
 
-export function buildTimeAnalysis(sprintTitle: string): TimeAnalysisData | null {
+export function buildTimeAnalysis(sprintTitle: string, mode: 'points' | 'issues' = 'points', projectName?: string): TimeAnalysisData | null {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
   const sprint = db
-    .prepare('SELECT id FROM sprints WHERE title = ?')
-    .get(sprintTitle) as { id: number } | undefined
+    .prepare(`SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+    .get(sprintTitle, ...projectFilter.params) as { id: number } | undefined
 
   if (!sprint) return null
 
+  const sprintProjectFilter = getSprintProjectFilter(projectName)
   const items = db
     .prepare(
-      `SELECT title, number, url, type, status, effort, actual_time, assignee, closed_at
-       FROM items
-       WHERE sprint_id = ?
-       ORDER BY assignee, title`
+       `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+        FROM items i
+        WHERE i.sprint_id = ? ${sprintProjectFilter.sql}
+        ORDER BY i.assignee, i.title`
     )
-    .all(sprint.id) as {
+    .all(sprint.id, ...sprintProjectFilter.params) as {
       title: string
       number: number
       url: string
@@ -377,9 +415,11 @@ export function buildTimeAnalysis(sprintTitle: string): TimeAnalysisData | null 
     }[]
 
   const issues: TimeAnalysisIssue[] = items.map((i) => {
-    const source = i.actual_time != null ? 'MAN' as const : (i.status === 'Done' ? 'AUTO' as const : null)
-    const variance = i.effort != null && i.actual_time != null
-      ? Math.round((i.actual_time - i.effort) * 10) / 10
+    const source = i.actual_time != null ? 'MAN' as const : (i.status === doneStatus ? 'AUTO' as const : null)
+    const est = mode === 'issues' ? 1 : i.effort
+    const act = mode === 'issues' ? (i.status === doneStatus ? 1 : 0) : i.actual_time
+    const variance = est != null && act != null
+      ? Math.round((act - est) * 10) / 10
       : null
     return {
       title: i.title,
@@ -388,15 +428,15 @@ export function buildTimeAnalysis(sprintTitle: string): TimeAnalysisData | null 
       type: i.type,
       status: i.status,
       assignee: i.assignee,
-      effort: i.effort,
-      actual_time: i.actual_time,
+      effort: mode === 'issues' ? est : i.effort,
+      actual_time: mode === 'issues' ? act : i.actual_time,
       variance,
       source,
     }
   })
 
-  const totalEstimated = items.reduce((s, i) => s + (i.effort ?? 0), 0)
-  const totalActual = items.reduce((s, i) => s + (i.actual_time ?? 0), 0)
+  const totalEstimated = issues.reduce((s, i) => s + (i.effort ?? 0), 0)
+  const totalActual = issues.reduce((s, i) => s + (i.actual_time ?? 0), 0)
   const variance = totalActual - totalEstimated
 
   const assigneeMap = new Map<string, TimeAnalysisMember>()
@@ -467,22 +507,25 @@ function kpiRating(days: number): 'Good' | 'Fair' | 'Poor' {
   return 'Poor'
 }
 
-export function buildCycleTime(sprintTitle: string): CycleTimeData | null {
+export function buildCycleTime(sprintTitle: string, projectName?: string): CycleTimeData | null {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
   const sprint = db
-    .prepare('SELECT start_date, duration FROM sprints WHERE title = ?')
-    .get(sprintTitle) as { start_date: string; duration: number } | undefined
+    .prepare(`SELECT start_date, duration FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+    .get(sprintTitle, ...projectFilter.params) as { start_date: string; duration: number } | undefined
 
   if (!sprint) return null
 
+  const sprintProjectFilter = getSprintProjectFilter(projectName)
   const items = db
     .prepare(
-      `SELECT title, number, url, assignee, closed_at
-       FROM items
-       WHERE sprint_id = (SELECT id FROM sprints WHERE title = ?) AND status = 'Done'`
+       `SELECT i.title, i.number, i.url, i.assignee, i.closed_at
+        FROM items i
+        WHERE i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}) AND i.status = ? ${sprintProjectFilter.sql}`
     )
-    .all(sprintTitle) as { title: string; number: number; url: string; assignee: string | null; closed_at: string | null }[]
+    .all(sprintTitle, doneStatus, ...projectFilter.params, ...sprintProjectFilter.params) as { title: string; number: number; url: string; assignee: string | null; closed_at: string | null }[]
 
   const cycleTimes = items.map((i) => ({
     ...i,
@@ -493,7 +536,6 @@ export function buildCycleTime(sprintTitle: string): CycleTimeData | null {
     ? Math.round((cycleTimes.reduce((s, i) => s + i.cycleTime!, 0) / cycleTimes.length) * 10) / 10
     : 0
 
-  // Per-assignee aggregation
   const assigneeMap = new Map<string, { count: number; total: number; items: { title: string; number: number; url: string; cycleTime: number }[] }>()
   for (const i of cycleTimes) {
     const name = i.assignee || 'Unassigned'
@@ -519,18 +561,17 @@ export function buildCycleTime(sprintTitle: string): CycleTimeData | null {
   }
   assignees.sort((a, b) => a.assignee.localeCompare(b.assignee))
 
-  // All-sprint trend
   const allSprints = db
-    .prepare('SELECT id, title, start_date, duration FROM sprints ORDER BY start_date')
-    .all() as { id: number; title: string; start_date: string; duration: number }[]
+    .prepare(`SELECT id, title, start_date, duration FROM sprints s WHERE 1=1 ${projectFilter.sql} ORDER BY s.start_date`)
+    .all(...projectFilter.params) as { id: number; title: string; start_date: string; duration: number }[]
 
   const trend: { sprint: string; avgCycleTime: number }[] = []
   let totalAllAvg = 0
   let sprintCount = 0
   for (const s of allSprints) {
     const sprintItems = db
-      .prepare("SELECT closed_at FROM items WHERE sprint_id = ? AND status = 'Done'")
-      .all(s.id) as { closed_at: string | null }[]
+      .prepare("SELECT closed_at FROM items WHERE sprint_id = ? AND status = ?")
+      .all(s.id, doneStatus) as { closed_at: string | null }[]
 
     const times = sprintItems
       .map((i) => calcCycleTime(s.start_date, i.closed_at, s.duration))
@@ -582,17 +623,16 @@ function rateToRating(rate: number): 'Good' | 'Fair' | 'Poor' {
   return 'Poor'
 }
 
-export function buildCommitment(mode: 'points' | 'issues' = 'points'): CommitmentData {
+export function buildCommitment(mode: 'points' | 'issues' = 'points', projectName?: string): CommitmentData {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
   const sprints = db
-    .prepare('SELECT id, title FROM sprints ORDER BY start_date')
-    .all() as { id: number; title: string }[]
+    .prepare(`SELECT id, title FROM sprints s WHERE 1=1 ${projectFilter.sql} ORDER BY s.start_date`)
+    .all(...projectFilter.params) as { id: number; title: string }[]
 
-  const config = db
-    .prepare("SELECT value FROM config WHERE key = 'expected_hours'")
-    .get() as { value: string } | undefined
-  const expectedHours = config ? parseFloat(config.value) : 0
+  const expectedHours = getExpectedHours(projectName)
 
   const sprintRows: CommitmentSprint[] = []
   for (const s of sprints) {
@@ -604,7 +644,7 @@ export function buildCommitment(mode: 'points' | 'issues' = 'points'): Commitmen
       ? items.reduce((sum, i) => sum + (i.effort ?? 0), 0)
       : items.length
 
-    const deliveredItems = items.filter((i) => i.status === 'Done')
+    const deliveredItems = items.filter((i) => i.status === doneStatus)
     const delivered = mode === 'points'
       ? deliveredItems.reduce((sum, i) => sum + (i.actual_time ?? 0), 0)
       : deliveredItems.length
@@ -670,23 +710,27 @@ export interface CommitAssigneeData {
 
 export function buildCommitmentByAssignee(
   sprintTitle: string,
-  mode: 'points' | 'issues' = 'points'
+  mode: 'points' | 'issues' = 'points',
+  projectName?: string
 ): CommitAssigneeData | null {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
   const sprint = db
-    .prepare('SELECT id FROM sprints WHERE title = ?')
-    .get(sprintTitle) as { id: number } | undefined
+    .prepare(`SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+    .get(sprintTitle, ...projectFilter.params) as { id: number } | undefined
   if (!sprint) return null
 
+  const sprintProjectFilter = getSprintProjectFilter(projectName)
   const items = db
     .prepare(
-      `SELECT title, number, url, type, status, effort, actual_time, assignee
-       FROM items
-       WHERE sprint_id = ? AND assignee IS NOT NULL
-       ORDER BY assignee, title`
+       `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee
+        FROM items i
+        WHERE i.sprint_id = ? AND i.assignee IS NOT NULL ${sprintProjectFilter.sql}
+        ORDER BY i.assignee, i.title`
     )
-    .all(sprint.id) as CommitAssigneeItem[]
+    .all(sprint.id, ...sprintProjectFilter.params) as CommitAssigneeItem[]
 
   const assigneeMap = new Map<string, { estimated: number; actual: number; count: number; items: CommitAssigneeItem[] }>()
 
@@ -697,7 +741,7 @@ export function buildCommitmentByAssignee(
     }
     const m = assigneeMap.get(name)!
     m.estimated += mode === 'points' ? (i.effort ?? 0) : 1
-    m.actual += (i.status === 'Done') ? (mode === 'points' ? (i.actual_time ?? 0) : 1) : 0
+    m.actual += (i.status === doneStatus) ? (mode === 'points' ? (i.actual_time ?? 0) : 1) : 0
     m.count++
     m.items.push(i)
   }
@@ -771,33 +815,34 @@ function defectsRating(rate: number): 'Good' | 'Fair' | 'Poor' {
   return 'Poor'
 }
 
-export function buildDefects(sprintTitle: string): DefectData | null {
+export function buildDefects(sprintTitle: string, projectName?: string): DefectData | null {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
   const sprint = db
-    .prepare('SELECT id FROM sprints WHERE title = ?')
-    .get(sprintTitle) as { id: number } | undefined
+    .prepare(`SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+    .get(sprintTitle, ...projectFilter.params) as { id: number } | undefined
   if (!sprint) return null
 
-  // Current sprint items
+  const sprintProjectFilter = getSprintProjectFilter(projectName)
   const items = db
     .prepare(
-      `SELECT title, number, url, type, status, effort, actual_time, assignee, closed_at
-       FROM items
-       WHERE sprint_id = ?
-       ORDER BY status, title`
+       `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+        FROM items i
+        WHERE i.sprint_id = ? ${sprintProjectFilter.sql}
+        ORDER BY i.status, i.title`
     )
-    .all(sprint.id) as BurndownItem[]
+    .all(sprint.id, ...sprintProjectFilter.params) as BurndownItem[]
 
   const bugItems = items.filter((i) => i.type === 'bug')
-  const closedBugs = bugItems.filter((i) => i.status === 'Done')
-  const openBugs = bugItems.filter((i) => i.status !== 'Done')
+  const closedBugs = bugItems.filter((i) => i.status === doneStatus)
+  const openBugs = bugItems.filter((i) => i.status !== doneStatus)
 
   const defectCount = bugItems.length
   const totalItems = items.length
   const defectRate = totalItems > 0 ? Math.round((defectCount / totalItems) * 100) : 0
 
-  // Per-assignee breakdown
   const assigneeMap = new Map<string, { defectCount: number; totalItems: number; effortOnDefects: number }>()
   for (const i of items) {
     const name = i.assignee ?? 'Unassigned'
@@ -822,10 +867,9 @@ export function buildDefects(sprintTitle: string): DefectData | null {
     }))
     .sort((a, b) => a.assignee.localeCompare(b.assignee))
 
-  // Trend across all sprints
   const allSprints = db
-    .prepare('SELECT id, title FROM sprints ORDER BY start_date')
-    .all() as { id: number; title: string }[]
+    .prepare(`SELECT id, title FROM sprints s WHERE 1=1 ${projectFilter.sql} ORDER BY s.start_date`)
+    .all(...projectFilter.params) as { id: number; title: string }[]
 
   const trend: DefectTrendEntry[] = allSprints.map((s) => {
     const sprintItems = db
@@ -896,52 +940,47 @@ function estimationRating(varPct: number): 'Good' | 'Fair' | 'Poor' {
   return 'Poor'
 }
 
-export function buildScorecard(sprintTitle: string): ScorecardData | null {
+export function buildScorecard(sprintTitle: string, projectName?: string): ScorecardData | null {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
   const sprint = db
-    .prepare('SELECT id, start_date, duration FROM sprints WHERE title = ?')
-    .get(sprintTitle) as { id: number; start_date: string; duration: number } | undefined
+    .prepare(`SELECT id, start_date, duration FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+    .get(sprintTitle, ...projectFilter.params) as { id: number; start_date: string; duration: number } | undefined
   if (!sprint) return null
 
-  // 1. Delivery rate (commitment - points mode)
-  const commitment = buildCommitment('points')
+  const commitment = buildCommitment('points', projectName)
   const currentSprintCommit = commitment.sprints.find((s) => s.sprint === sprintTitle)
   const deliveryRate = currentSprintCommit?.rate ?? 0
   const deliveryKpi = rateToRating(deliveryRate)
 
-  // 2. Cycle time
-  const cycleData = buildCycleTime(sprintTitle)
+  const cycleData = buildCycleTime(sprintTitle, projectName)
   const cycleTime = cycleData?.summary.currentAvg ?? 0
   const cycleKpi = cycleData?.summary.kpiRating ?? 'Good'
 
-  // 3. Defect rate
-  const defectData = buildDefects(sprintTitle)
+  const defectData = buildDefects(sprintTitle, projectName)
   const defectRate = defectData?.summary.defectRate ?? 0
   const defectKpi = defectData?.summary.kpiRating ?? 'Good'
 
-  // 4. Velocity: current sprint vs all-sprint average
-  const velocity = buildVelocity('points')
+  const velocity = buildVelocity('points', projectName)
   const currentV = velocity.currentSprint
   const velocityCompleted = currentV?.completed ?? 0
   const velocityAverage = velocity.average
   const velocityDiff = Math.round((velocityCompleted - velocityAverage) * 10) / 10
 
-  // 5. Estimation variance (from time analysis)
-  const timeData = buildTimeAnalysis(sprintTitle)
+  const timeData = buildTimeAnalysis(sprintTitle, 'points', projectName)
   const totalEst = timeData?.summary.totalEstimated ?? 1
   const totalAct = timeData?.summary.totalActual ?? 0
   const estimationVariance = Math.round((totalAct - totalEst) * 10) / 10
   const estimationVariancePct = totalEst > 0 ? Math.round(((totalAct - totalEst) / totalEst) * 100) : 0
   const estimationKpi = estimationRating(estimationVariancePct)
 
-  // 6. Burndown percentage and issues
-  const burndown = buildBurndown(sprintTitle, 'points')
+  const burndown = buildBurndown(sprintTitle, 'points', projectName)
   const burndownPct = burndown?.summary.percentComplete ?? 0
   const issuesTotal = burndown?.items.length ?? 0
-  const issuesCompleted = burndown?.items.filter((i) => i.status === 'Done').length ?? 0
+  const issuesCompleted = burndown?.items.filter((i) => i.status === doneStatus).length ?? 0
 
-  // 7. Days left
   const startDate = new Date(sprint.start_date)
   const now = new Date()
   const dayIndex = Math.min(
@@ -950,15 +989,12 @@ export function buildScorecard(sprintTitle: string): ScorecardData | null {
   )
   const daysLeft = sprint.duration - dayIndex
 
-  // 8. Active members
-  const team = buildTeamStats(sprintTitle)
+  const team = buildTeamStats(sprintTitle, 'points', projectName)
   const activeMembers = team.summary.activeMembers
 
-  // 9. At-risk issues (in progress that should be done)
-  const overview = buildOverview(sprintTitle)
+  const overview = buildOverview(sprintTitle, 'points', projectName)
   const issuesAtRisk = overview?.stories.filter((s) => s.status === 'In Progress' || s.status === 'To Do').length ?? 0
 
-  // Overall rating = worst of the 4 primary KPIs
   const ratings = [deliveryKpi, cycleKpi, defectKpi, estimationKpi]
   const overallRating: 'Good' | 'Fair' | 'Poor' =
     ratings.some((r) => r === 'Poor') ? 'Poor' :
@@ -1064,17 +1100,19 @@ function stdDev(values: number[]): number {
   return Math.round(Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
 }
 
-export function buildStability(sprintTitle: string): StabilityData | null {
+export function buildStability(sprintTitle: string, projectName?: string): StabilityData | null {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
   const sprint = db
-    .prepare('SELECT id FROM sprints WHERE title = ?')
-    .get(sprintTitle) as { id: number } | undefined
+    .prepare(`SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+    .get(sprintTitle, ...projectFilter.params) as { id: number } | undefined
   if (!sprint) return null
 
   const allSprints = db
-    .prepare('SELECT id, title FROM sprints ORDER BY start_date')
-    .all() as { id: number; title: string }[]
+    .prepare(`SELECT id, title FROM sprints s WHERE 1=1 ${projectFilter.sql} ORDER BY s.start_date`)
+    .all(...projectFilter.params) as { id: number; title: string }[]
 
   const sprintMetrics: StabilitySprintMetric[] = allSprints.map((s) => {
     const items = db
@@ -1087,7 +1125,7 @@ export function buildStability(sprintTitle: string): StabilityData | null {
       ? Math.round((1 - Math.abs(totalAct - totalEst) / totalEst) * 100)
       : 100
 
-    const doneItems = items.filter((i) => i.status === 'Done')
+    const doneItems = items.filter((i) => i.status === doneStatus)
     const scopeCompletionRate = items.length > 0
       ? Math.round((doneItems.length / items.length) * 100)
       : 100
@@ -1144,50 +1182,66 @@ export function buildStability(sprintTitle: string): StabilityData | null {
   }
 }
 
-export function buildTeamStats(sprintTitle?: string): TeamData {
+export function buildTeamStats(sprintTitle?: string, mode: 'points' | 'issues' = 'points', projectName?: string): TeamData {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+
+  const projectFilter = getProjectFilter(projectName)
+  const sprintProjectFilter = getSprintProjectFilter(projectName)
 
   const sprintFilter = sprintTitle
-    ? "AND sprint_id = (SELECT id FROM sprints WHERE title = ?)"
-    : ""
+    ? `AND i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql})`
+    : projectFilter.sql ? `AND i.project_id = ?` : ''
 
-  const members = db
+  const sprintParams = sprintTitle
+    ? [sprintTitle, ...projectFilter.params]
+    : projectFilter.params
+
+  const rawMembers = db
     .prepare(
       `SELECT
-         assignee,
-         COALESCE(SUM(effort), 0) AS totalEffort,
-         COALESCE(SUM(actual_time), 0) AS totalActual,
-         COUNT(CASE WHEN status = 'Done' THEN 1 END) AS closedCount
-       FROM items
-       WHERE assignee IS NOT NULL ${sprintFilter}
-       GROUP BY assignee
-       ORDER BY assignee`
+         i.assignee,
+         COALESCE(SUM(i.effort), 0) AS totalEffort,
+         COALESCE(SUM(i.actual_time), 0) AS totalActual,
+         COUNT(CASE WHEN i.status = ? THEN 1 END) AS closedCount
+       FROM items i
+       JOIN sprints s ON i.sprint_id = s.id
+       WHERE i.assignee IS NOT NULL ${sprintFilter} ${sprintProjectFilter.sql}
+       GROUP BY i.assignee
+       ORDER BY i.assignee`
     )
-    .all(sprintTitle ? [sprintTitle] : []) as { assignee: string; totalEffort: number; totalActual: number; closedCount: number }[]
-
-  const totalEffortAll = members.reduce((s, m) => s + m.totalEffort, 0) || 1
+    .all(doneStatus, ...sprintParams, ...sprintProjectFilter.params) as { assignee: string; totalEffort: number; totalActual: number; closedCount: number }[]
 
   const memberStatements = sprintTitle
     ? db.prepare(
-        `SELECT title, number, url, type, status, effort, actual_time, assignee, closed_at
-         FROM items
-         WHERE assignee = ? AND assignee IS NOT NULL
-           AND sprint_id = (SELECT id FROM sprints WHERE title = ?)
-         ORDER BY status, title`
+        `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+         FROM items i
+         JOIN sprints s ON i.sprint_id = s.id
+         WHERE i.assignee = ? AND i.assignee IS NOT NULL
+           AND s.title = ? ${projectFilter.sql} ${sprintProjectFilter.sql}
+         ORDER BY i.status, i.title`
       )
     : null
 
-  const membersWithItems: TeamMemberStat[] = members.map((m) => {
+  const membersWithItems: TeamMemberStat[] = rawMembers.map((m) => {
     let items: TeamMemberItem[] = []
     if (memberStatements) {
-      items = memberStatements.all(m.assignee, sprintTitle) as TeamMemberItem[]
+      items = memberStatements.all(m.assignee, sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params) as TeamMemberItem[]
     }
+    const eff = mode === 'issues' ? items.length : m.totalEffort
+    const act = mode === 'issues' ? items.filter((i) => i.status === doneStatus).length : m.totalActual
     return {
-      ...m,
-      share: Math.round((m.totalEffort / totalEffortAll) * 100),
+      assignee: m.assignee,
+      totalEffort: eff,
+      totalActual: act,
+      closedCount: m.closedCount,
+      share: 0,
       items,
     }
   })
+
+  const totalEffortAll = membersWithItems.reduce((s, m) => s + m.totalEffort, 0) || 1
+  membersWithItems.forEach((m) => { m.share = Math.round((m.totalEffort / totalEffortAll) * 100) })
 
   return {
     summary: {
@@ -1227,25 +1281,25 @@ export interface KpiReviewData {
   }
 }
 
-export function buildKpiReview(): KpiReviewData {
+export function buildKpiReview(projectName?: string): KpiReviewData {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const projectFilter = getProjectFilter(projectName)
 
   const allSprints = db
-    .prepare('SELECT id, title, start_date, duration FROM sprints ORDER BY start_date')
-    .all() as { id: number; title: string; start_date: string; duration: number }[]
+    .prepare(`SELECT id, title, start_date, duration FROM sprints s WHERE 1=1 ${projectFilter.sql} ORDER BY s.start_date`)
+    .all(...projectFilter.params) as { id: number; title: string; start_date: string; duration: number }[]
 
   const sprints: KpiReviewEntry[] = allSprints.map((s) => {
     const items = db
       .prepare('SELECT effort, actual_time, status, type, closed_at FROM items WHERE sprint_id = ?')
       .all(s.id) as { effort: number | null; actual_time: number | null; status: string; type: string; closed_at: string | null }[]
 
-    // Delivery rate (points mode)
     const committed = items.reduce((sum, i) => sum + (i.effort ?? 0), 0)
-    const doneItems = items.filter((i) => i.status === 'Done')
+    const doneItems = items.filter((i) => i.status === doneStatus)
     const delivered = doneItems.reduce((sum, i) => sum + (i.actual_time ?? 0), 0)
     const deliveryRate = committed > 0 ? Math.round((delivered / committed) * 100) : 0
 
-    // Cycle time
     const cycleTimes = doneItems
       .map((i) => calcCycleTime(s.start_date, i.closed_at, s.duration))
       .filter((t): t is number => t != null)
@@ -1253,21 +1307,17 @@ export function buildKpiReview(): KpiReviewData {
       ? Math.round((cycleTimes.reduce((a, b) => a + b, 0) / cycleTimes.length) * 10) / 10
       : 0
 
-    // Defect rate
     const bugs = items.filter((i) => i.type === 'bug').length
     const defectRate = items.length > 0 ? Math.round((bugs / items.length) * 100) : 0
 
-    // Estimation accuracy
     const totalEst = items.reduce((sum, i) => sum + (i.effort ?? 0), 0)
     const totalAct = items.reduce((sum, i) => sum + (i.actual_time ?? 0), 0)
     const estimationAccuracy = totalEst > 0
       ? Math.round((1 - Math.abs(totalAct - totalEst) / totalEst) * 100)
       : 100
 
-    // Velocity
     const velocity = Math.round(delivered * 10) / 10
 
-    // Scope completion
     const scopeCompletionRate = items.length > 0
       ? Math.round((doneItems.length / items.length) * 100)
       : 100

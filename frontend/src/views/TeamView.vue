@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch } from 'vue'
 import { useApi } from '@/composables/useApi'
+import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { TeamResponse } from '@/types'
 
 const { getTeam } = useApi()
 
-const sprint = ref('')
+const mode = ref<'points' | 'issues'>('points')
 const data = ref<TeamResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -27,7 +28,7 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getTeam(sprint.value || undefined)
+    data.value = await getTeam(sprint.value || undefined, mode.value, project.value || undefined)
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -43,7 +44,9 @@ function statusClass(status: string): string {
   return ''
 }
 
-onMounted(load)
+const { sprint, sprints, project } = useSprintSelector(load)
+watch(mode, load)
+watch(sprint, load)
 </script>
 
 <template>
@@ -51,10 +54,17 @@ onMounted(load)
     <div class="team-header">
       <h2>Team Performance</h2>
       <div class="team-controls">
-        <label class="sprint-label">
-          Sprint
-          <input v-model="sprint" placeholder="All sprints" class="sprint-input" @change="load" />
-        </label>
+        <div class="sprint-selector">
+          <label>Sprint:</label>
+          <select v-model="sprint">
+            <option value="">All sprints</option>
+            <option v-for="s in sprints" :key="s" :value="s">{{ s }}</option>
+          </select>
+        </div>
+        <div class="mode-toggle">
+          <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
+          <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+        </div>
         <button class="btn-refresh" @click="load" :disabled="loading">
           {{ loading ? 'Loading...' : 'Refresh' }}
         </button>
@@ -70,12 +80,12 @@ onMounted(load)
           <span class="card-value">{{ data.summary.activeMembers }}</span>
         </div>
         <div class="card card--blue">
-          <span class="card-label">Total Effort</span>
-          <span class="card-value">{{ data.summary.totalEffort.toFixed(1) }}</span>
+          <span class="card-label">{{ mode === 'points' ? 'Total Effort' : 'Total Items' }}</span>
+          <span class="card-value">{{ mode === 'points' ? data.summary.totalEffort.toFixed(1) : data.summary.totalEffort }}</span>
         </div>
         <div class="card card--green">
-          <span class="card-label">Total Actual</span>
-          <span class="card-value">{{ data.summary.totalActual.toFixed(1) }}</span>
+          <span class="card-label">{{ mode === 'points' ? 'Total Actual' : 'Total Closed' }}</span>
+          <span class="card-value">{{ mode === 'points' ? data.summary.totalActual.toFixed(1) : data.summary.totalActual }}</span>
         </div>
         <div class="card">
           <span class="card-label">Items Closed</span>
@@ -89,10 +99,10 @@ onMounted(load)
             <tr>
               <th></th>
               <th>Assignee</th>
-              <th>Effort</th>
-              <th>Actual</th>
+              <th>{{ mode === 'points' ? 'Effort' : 'Items' }}</th>
+              <th>{{ mode === 'points' ? 'Actual' : 'Closed' }}</th>
               <th>Closed</th>
-              <th>Share</th>
+              <th>{{ mode === 'points' ? 'Share' : 'Share %' }}</th>
               <th>Progress</th>
             </tr>
           </thead>
@@ -170,27 +180,6 @@ onMounted(load)
   display: flex;
   gap: 10px;
   align-items: center;
-}
-
-.sprint-label {
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sprint-input {
-  padding: 6px 10px;
-  border: 1px solid #dfe1e6;
-  border-radius: 3px;
-  font-size: 14px;
-  width: 160px;
-  outline: none;
-}
-
-.sprint-input:focus {
-  border-color: #0747a6;
 }
 
 .btn-refresh {
