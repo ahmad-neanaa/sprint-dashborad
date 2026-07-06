@@ -210,6 +210,81 @@ body {
   background: #fff;
 }
 
+/* Time range selector styling */
+.time-range-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f4f5f7;
+  padding: 4px;
+  border-radius: 4px;
+  border: 1px solid #dfe1e6;
+}
+
+.selector-mode-toggle {
+  display: flex;
+  background: #ebeef2;
+  border-radius: 3px;
+  padding: 2px;
+}
+
+.selector-mode-toggle button {
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #505f79;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: all 0.2s;
+}
+
+.selector-mode-toggle button:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.selector-mode-toggle button.active {
+  background: #fff;
+  color: #0747a6;
+  box-shadow: 0 1px 3px rgba(9, 30, 66, 0.08);
+}
+
+.selector-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sprint-select-wrapper select {
+  padding: 4px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  font-size: 13px;
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.date-range-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #5e6c84;
+}
+
+.date-range-wrapper input[type="date"] {
+  padding: 4px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  font-size: 12px;
+  background: #fff;
+  outline: none;
+  color: #172b4d;
+}
+
 .sprint-selector select:focus {
   border-color: #0747a6;
 }

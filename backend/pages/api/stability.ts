@@ -8,16 +8,20 @@ export default function handler(
 ) {
   runMigrations()
 
-  const { sprint, project } = req.query
+  const { sprint, project, startDate, endDate } = req.query
   const projectName = typeof project === 'string' && project.length > 0 ? project : undefined
 
-  if (!sprint || typeof sprint !== 'string') {
-    return res.status(400).json({ error: 'Missing sprint parameter' })
+  let data
+  if (typeof sprint === 'string' && sprint.length > 0) {
+    data = buildStability(sprint, projectName)
+  } else if (typeof startDate === 'string' && typeof endDate === 'string' && startDate && endDate) {
+    data = buildStability(null, projectName, startDate, endDate)
+  } else {
+    return res.status(400).json({ error: 'Missing or invalid "sprint" or "startDate"/"endDate" query parameter(s)' })
   }
 
-  const data = buildStability(sprint, projectName)
   if (!data) {
-    return res.status(404).json({ error: `Sprint "${sprint}" not found` })
+    return res.status(404).json({ error: 'Data not found' })
   }
 
   res.status(200).json(data)

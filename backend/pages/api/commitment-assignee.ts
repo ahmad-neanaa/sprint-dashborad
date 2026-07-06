@@ -8,19 +8,22 @@ export default function handler(
 ) {
   runMigrations()
 
-  const { sprint, mode, project } = req.query
+  const { sprint, mode, project, startDate, endDate } = req.query
   const projectName = typeof project === 'string' && project.length > 0 ? project : undefined
-
-  if (!sprint || typeof sprint !== 'string') {
-    return res.status(400).json({ error: 'Missing sprint parameter' })
-  }
-
   const commitMode = mode === 'issues' ? 'issues' : 'points'
 
-  const data = buildCommitmentByAssignee(sprint, commitMode, projectName)
-  if (!data) {
-    return res.status(404).json({ error: `Sprint "${sprint}" not found` })
+  let data
+  if (typeof sprint === 'string' && sprint.length > 0) {
+    data = buildCommitmentByAssignee(sprint, commitMode, projectName)
+  } else if (typeof startDate === 'string' && typeof endDate === 'string' && startDate && endDate) {
+    data = buildCommitmentByAssignee(null, commitMode, projectName, startDate, endDate)
+  } else {
+    return res.status(400).json({ error: 'Missing or invalid "sprint" or "startDate"/"endDate" query parameter(s)' })
   }
 
-  res.status(200).json({ sprint, mode: commitMode, ...data })
+  if (!data) {
+    return res.status(404).json({ error: 'Data not found' })
+  }
+
+  res.status(200).json({ sprint: sprint || `${startDate} to ${endDate}`, mode: commitMode, ...data })
 }

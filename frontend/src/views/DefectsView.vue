@@ -16,6 +16,7 @@ import {
 import { useApi } from '@/composables/useApi'
 import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { DefectResponse } from '@/types'
+import TimeSelector from '@/components/TimeSelector.vue'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
@@ -26,15 +27,19 @@ const error = ref('')
 
 async function load() {
   try {
-    data.value = await getDefects(sprint.value, project.value || undefined)
+    data.value = await getDefects(
+      selectionMode.value === 'sprint' ? sprint.value : null,
+      project.value || undefined,
+      selectionMode.value === 'date' ? startDate.value : undefined,
+      selectionMode.value === 'date' ? endDate.value : undefined
+    )
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-const { sprint, sprints: sprintList, project } = useSprintSelector(load)
-watch(sprint, load)
+const { sprint, sprints: sprintList, project, selectionMode, startDate, endDate } = useSprintSelector(load)
 
 const trendChartData = computed(() => {
   if (!data.value) return { labels: [], datasets: [] }
@@ -124,12 +129,14 @@ function statusClass(s: string) {
   <div class="view-container">
     <div class="view-header">
       <h2 class="view-title">Defects</h2>
-      <div class="sprint-selector" v-if="sprintList.length > 0">
-        <label for="sprint">Sprint:</label>
-        <select id="sprint" v-model="sprint">
-          <option v-for="s in sprintList" :key="s" :value="s">{{ s }}</option>
-        </select>
-      </div>
+      <TimeSelector
+        v-model:selectionMode="selectionMode"
+        v-model:sprint="sprint"
+        :sprints="sprintList"
+        v-model:startDate="startDate"
+        v-model:endDate="endDate"
+        @change="load"
+      />
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>

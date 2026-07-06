@@ -15,6 +15,7 @@ import { Line, Bar } from 'vue-chartjs'
 import { useApi } from '@/composables/useApi'
 import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { CycleTimeResponse } from '@/types'
+import TimeSelector from '@/components/TimeSelector.vue'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend)
 
@@ -110,7 +111,12 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getCycleTime(sprint.value, project.value || undefined)
+    data.value = await getCycleTime(
+      selectionMode.value === 'sprint' ? sprint.value : null,
+      project.value || undefined,
+      selectionMode.value === 'date' ? startDate.value : undefined,
+      selectionMode.value === 'date' ? endDate.value : undefined
+    )
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -118,8 +124,7 @@ async function load() {
   }
 }
 
-const { sprint, sprints, project } = useSprintSelector(load)
-watch(sprint, load)
+const { sprint, sprints, project, selectionMode, startDate, endDate } = useSprintSelector(load)
 </script>
 
 <template>
@@ -127,12 +132,14 @@ watch(sprint, load)
     <div class="ct-header">
       <h2>Cycle Time</h2>
       <div class="ct-controls">
-        <div class="sprint-selector">
-          <label>Sprint:</label>
-          <select v-model="sprint" @change="load">
-            <option v-for="s in sprints" :key="s" :value="s">{{ s }}</option>
-          </select>
-        </div>
+        <TimeSelector
+          v-model:selectionMode="selectionMode"
+          v-model:sprint="sprint"
+          :sprints="sprints"
+          v-model:startDate="startDate"
+          v-model:endDate="endDate"
+          @change="load"
+        />
         <button class="btn-refresh" @click="load" :disabled="loading">{{ loading ? 'Loading...' : 'Refresh' }}</button>
       </div>
     </div>

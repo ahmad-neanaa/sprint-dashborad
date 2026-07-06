@@ -1,12 +1,29 @@
 import { ref, onMounted, watch, type Ref } from 'vue'
 import { useApi, useRefreshSignal, useSelectedProject } from './useApi'
 
+function formatDate(date: Date): string {
+  try {
+    return date.toISOString().split('T')[0]
+  } catch {
+    return ''
+  }
+}
+
 export function useSprintSelector(loadFn?: () => Promise<void>) {
   const project = useSelectedProject()
   const { getSprints } = useApi()
 
   const sprint = ref('')
   const sprints = ref<string[]>([])
+  
+  const today = new Date()
+  const fourteenDaysAgo = new Date()
+  fourteenDaysAgo.setDate(today.getDate() - 14)
+
+  const selectionMode = ref<'sprint' | 'date'>('sprint')
+  const startDate = ref(formatDate(fourteenDaysAgo))
+  const endDate = ref(formatDate(today))
+
   const refreshSignal = useRefreshSignal()
 
   async function loadSprints() {
@@ -23,21 +40,30 @@ export function useSprintSelector(loadFn?: () => Promise<void>) {
 
   async function init() {
     await loadSprints()
-    await loadFn?.()
+    await safeLoad()
+  }
+
+  async function safeLoad() {
+    if (selectionMode.value === 'sprint') {
+      if (sprint.value) await loadFn?.()
+    } else {
+      if (startDate.value && endDate.value) await loadFn?.()
+    }
   }
 
   if (loadFn) {
-    watch(refreshSignal, loadFn)
+    watch(refreshSignal, safeLoad)
     watch(project, async () => {
       sprint.value = ''
       await loadSprints()
-      await loadFn()
+      await safeLoad()
     })
+    watch([selectionMode, startDate, endDate], safeLoad)
   }
 
   onMounted(init)
 
-  return { sprint, sprints, project, refreshSignal }
+  return { sprint, sprints, project, refreshSignal, selectionMode, startDate, endDate, safeLoad }
 }
 
 export function useProjectWatcher(loadFn: () => Promise<void>) {

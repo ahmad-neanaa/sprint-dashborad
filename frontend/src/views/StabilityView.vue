@@ -15,6 +15,7 @@ import {
 import { useApi } from '@/composables/useApi'
 import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { StabilityResponse } from '@/types'
+import TimeSelector from '@/components/TimeSelector.vue'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
@@ -25,15 +26,19 @@ const error = ref('')
 
 async function load() {
   try {
-    data.value = await getStability(sprint.value, project.value || undefined)
+    data.value = await getStability(
+      selectionMode.value === 'sprint' ? sprint.value : null,
+      project.value || undefined,
+      selectionMode.value === 'date' ? startDate.value : undefined,
+      selectionMode.value === 'date' ? endDate.value : undefined
+    )
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-const { sprint, sprints: sprintList, project } = useSprintSelector(load)
-watch(sprint, load)
+const { sprint, sprints: sprintList, project, selectionMode, startDate, endDate } = useSprintSelector(load)
 
 function ratingClass(rating: string) {
   if (rating === 'Good') return 'badge badge-green'
@@ -86,12 +91,14 @@ const chartOptions = computed(() => ({
   <div class="view-container">
     <div class="view-header">
       <h2 class="view-title">Stability</h2>
-      <div class="sprint-selector" v-if="sprintList.length > 0">
-        <label for="sprint">Sprint:</label>
-        <select id="sprint" v-model="sprint">
-          <option v-for="s in sprintList" :key="s" :value="s">{{ s }}</option>
-        </select>
-      </div>
+      <TimeSelector
+        v-model:selectionMode="selectionMode"
+        v-model:sprint="sprint"
+        :sprints="sprintList"
+        v-model:startDate="startDate"
+        v-model:endDate="endDate"
+        @change="load"
+      />
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>

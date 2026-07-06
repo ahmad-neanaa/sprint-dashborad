@@ -15,6 +15,7 @@ import { Line } from 'vue-chartjs'
 import { useApi } from '@/composables/useApi'
 import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { BurndownResponse } from '@/types'
+import TimeSelector from '@/components/TimeSelector.vue'
 
 ChartJS.register(
   CategoryScale,
@@ -104,7 +105,13 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getBurndown(sprint.value, mode.value, project.value || undefined)
+    data.value = await getBurndown(
+      selectionMode.value === 'sprint' ? sprint.value : null,
+      mode.value,
+      project.value || undefined,
+      selectionMode.value === 'date' ? startDate.value : undefined,
+      selectionMode.value === 'date' ? endDate.value : undefined
+    )
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -120,7 +127,7 @@ function statusClass(status: string): string {
   return ''
 }
 
-const { sprint, sprints, project } = useSprintSelector(load)
+const { sprint, sprints, project, selectionMode, startDate, endDate } = useSprintSelector(load)
 watch(mode, load)
 </script>
 
@@ -129,12 +136,14 @@ watch(mode, load)
     <div class="burndown-header">
       <h2>Burndown</h2>
       <div class="burndown-controls">
-        <div class="sprint-selector">
-          <label>Sprint:</label>
-          <select v-model="sprint" @change="load">
-            <option v-for="s in sprints" :key="s" :value="s">{{ s }}</option>
-          </select>
-        </div>
+        <TimeSelector
+          v-model:selectionMode="selectionMode"
+          v-model:sprint="sprint"
+          :sprints="sprints"
+          v-model:startDate="startDate"
+          v-model:endDate="endDate"
+          @change="load"
+        />
         <div class="mode-toggle">
           <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
           <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>

@@ -13,6 +13,7 @@ import {
 import { useApi } from '@/composables/useApi'
 import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { CommitAssigneeResponse } from '@/types'
+import TimeSelector from '@/components/TimeSelector.vue'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -23,17 +24,22 @@ const data = ref<CommitAssigneeResponse | null>(null)
 const error = ref('')
 
 async function load() {
-  if (!sprint.value) return
   try {
-    data.value = await getCommitmentAssignee(sprint.value, mode.value, project.value || undefined)
+    data.value = await getCommitmentAssignee(
+      selectionMode.value === 'sprint' ? sprint.value : null,
+      mode.value,
+      project.value || undefined,
+      selectionMode.value === 'date' ? startDate.value : undefined,
+      selectionMode.value === 'date' ? endDate.value : undefined
+    )
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-const { sprint, sprints: sprintList, project } = useSprintSelector(load)
-watch([mode, sprint], load)
+const { sprint, sprints: sprintList, project, selectionMode, startDate, endDate } = useSprintSelector(load)
+watch(mode, load)
 
 const chartData = computed(() => {
   if (!data.value) return { labels: [], datasets: [] }
@@ -115,12 +121,14 @@ function statusClass(s: string) {
       <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
     </div>
 
-    <div class="sprint-selector" v-if="sprintList.length > 0">
-      <label>Sprint:</label>
-      <select v-model="sprint">
-        <option v-for="s in sprintList" :key="s" :value="s">{{ s }}</option>
-      </select>
-    </div>
+    <TimeSelector
+      v-model:selectionMode="selectionMode"
+      v-model:sprint="sprint"
+      :sprints="sprintList"
+      v-model:startDate="startDate"
+      v-model:endDate="endDate"
+      @change="load"
+    />
 
     <div v-if="data" class="kpi-row">
       <div class="kpi-card">

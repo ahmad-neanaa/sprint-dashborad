@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { useApi } from '@/composables/useApi'
 import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { TeamResponse } from '@/types'
+import TimeSelector from '@/components/TimeSelector.vue'
 
 const { getTeam } = useApi()
 
@@ -28,7 +29,13 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getTeam(sprint.value || undefined, mode.value, project.value || undefined)
+    data.value = await getTeam(
+      selectionMode.value === 'sprint' ? (sprint.value || undefined) : undefined,
+      mode.value,
+      project.value || undefined,
+      selectionMode.value === 'date' ? startDate.value : undefined,
+      selectionMode.value === 'date' ? endDate.value : undefined
+    )
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -44,7 +51,7 @@ function statusClass(status: string): string {
   return ''
 }
 
-const { sprint, sprints, project } = useSprintSelector(load)
+const { sprint, sprints, project, selectionMode, startDate, endDate } = useSprintSelector(load)
 watch(mode, load)
 watch(sprint, load)
 </script>
@@ -54,13 +61,15 @@ watch(sprint, load)
     <div class="team-header">
       <h2>Team Performance</h2>
       <div class="team-controls">
-        <div class="sprint-selector">
-          <label>Sprint:</label>
-          <select v-model="sprint">
-            <option value="">All sprints</option>
-            <option v-for="s in sprints" :key="s" :value="s">{{ s }}</option>
-          </select>
-        </div>
+        <TimeSelector
+          v-model:selectionMode="selectionMode"
+          v-model:sprint="sprint"
+          :sprints="sprints"
+          v-model:startDate="startDate"
+          v-model:endDate="endDate"
+          allowAllSprints
+          @change="load"
+        />
         <div class="mode-toggle">
           <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
           <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>

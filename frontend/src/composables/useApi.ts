@@ -39,54 +39,61 @@ function projectQuery(project?: string): string {
   return project ? `&project=${encodeURIComponent(project)}` : ''
 }
 
+function timeParams(sprint?: string | null, startDate?: string, endDate?: string): string {
+  if (sprint) return `sprint=${encodeURIComponent(sprint)}`
+  if (startDate && endDate) return `startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`
+  return ''
+}
+
 export function useApi() {
-  function getBurndown(sprint: string, mode: 'points' | 'issues' = 'points', project?: string): Promise<BurndownResponse> {
-    return fetchJson(`${BASE}/burndown?sprint=${encodeURIComponent(sprint)}&mode=${mode}${projectQuery(project)}`)
+  function getBurndown(sprint: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string): Promise<BurndownResponse> {
+    return fetchJson(`${BASE}/burndown?${timeParams(sprint, startDate, endDate)}&mode=${mode}${projectQuery(project)}`)
   }
 
   function getVelocity(mode: 'points' | 'issues' = 'points', project?: string): Promise<VelocityResponse> {
     return fetchJson(`${BASE}/velocity?mode=${mode}${projectQuery(project)}`)
   }
 
-  function getTeam(sprint?: string, mode: 'points' | 'issues' = 'points', project?: string): Promise<TeamResponse> {
-    const qs = sprint ? `?sprint=${encodeURIComponent(sprint)}` : '?'
-    return fetchJson(`${BASE}/team${qs}&mode=${mode}${project ? `&project=${encodeURIComponent(project)}` : ''}`)
+  function getTeam(sprint?: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string): Promise<TeamResponse> {
+    const tp = timeParams(sprint, startDate, endDate)
+    const pq = project ? `&project=${encodeURIComponent(project)}` : ''
+    return fetchJson(`${BASE}/team?${tp}&mode=${mode}${pq}`)
   }
 
-  function getCommitmentAssignee(sprint: string, mode: 'points' | 'issues' = 'points', project?: string): Promise<CommitAssigneeResponse> {
-    return fetchJson(`${BASE}/commitment-assignee?sprint=${encodeURIComponent(sprint)}&mode=${mode}${projectQuery(project)}`)
+  function getCommitmentAssignee(sprint: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string): Promise<CommitAssigneeResponse> {
+    return fetchJson(`${BASE}/commitment-assignee?${timeParams(sprint, startDate, endDate)}&mode=${mode}${projectQuery(project)}`)
   }
 
   function getKpiReview(project?: string): Promise<KpiReviewResponse> {
     return fetchJson(`${BASE}/kpi-review?${projectQuery(project)}`)
   }
 
-  function getStability(sprint: string, project?: string): Promise<StabilityResponse> {
-    return fetchJson(`${BASE}/stability?sprint=${encodeURIComponent(sprint)}${projectQuery(project)}`)
+  function getStability(sprint: string | null, project?: string, startDate?: string, endDate?: string): Promise<StabilityResponse> {
+    return fetchJson(`${BASE}/stability?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}`)
   }
 
-  function getScorecard(sprint: string, project?: string): Promise<ScorecardResponse> {
-    return fetchJson(`${BASE}/scorecard?sprint=${encodeURIComponent(sprint)}${projectQuery(project)}`)
+  function getScorecard(sprint: string | null, project?: string, startDate?: string, endDate?: string): Promise<ScorecardResponse> {
+    return fetchJson(`${BASE}/scorecard?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}`)
   }
 
-  function getDefects(sprint: string, project?: string): Promise<DefectResponse> {
-    return fetchJson(`${BASE}/defects?sprint=${encodeURIComponent(sprint)}${projectQuery(project)}`)
+  function getDefects(sprint: string | null, project?: string, startDate?: string, endDate?: string): Promise<DefectResponse> {
+    return fetchJson(`${BASE}/defects?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}`)
   }
 
   function getCommitment(mode: 'points' | 'issues' = 'points', project?: string): Promise<CommitmentResponse> {
     return fetchJson(`${BASE}/commitment?mode=${mode}${projectQuery(project)}`)
   }
 
-  function getCycleTime(sprint: string, project?: string): Promise<CycleTimeResponse> {
-    return fetchJson(`${BASE}/cycletime?sprint=${encodeURIComponent(sprint)}${projectQuery(project)}`)
+  function getCycleTime(sprint: string | null, project?: string, startDate?: string, endDate?: string): Promise<CycleTimeResponse> {
+    return fetchJson(`${BASE}/cycletime?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}`)
   }
 
-  function getTimeAnalysis(sprint: string, mode: 'points' | 'issues' = 'points', project?: string): Promise<TimeAnalysisResponse> {
-    return fetchJson(`${BASE}/timeanalysis?sprint=${encodeURIComponent(sprint)}&mode=${mode}${projectQuery(project)}`)
+  function getTimeAnalysis(sprint: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string): Promise<TimeAnalysisResponse> {
+    return fetchJson(`${BASE}/timeanalysis?${timeParams(sprint, startDate, endDate)}&mode=${mode}${projectQuery(project)}`)
   }
 
-  function getOverview(sprint: string, mode: 'points' | 'issues' = 'points', project?: string): Promise<OverviewResponse> {
-    return fetchJson(`${BASE}/overview?sprint=${encodeURIComponent(sprint)}&mode=${mode}${projectQuery(project)}`)
+  function getOverview(sprint: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string): Promise<OverviewResponse> {
+    return fetchJson(`${BASE}/overview?${timeParams(sprint, startDate, endDate)}&mode=${mode}${projectQuery(project)}`)
   }
 
   function getSprints(project?: string): Promise<SprintsResponse> {

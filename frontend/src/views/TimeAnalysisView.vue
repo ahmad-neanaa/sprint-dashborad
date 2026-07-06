@@ -13,6 +13,7 @@ import { Bar } from 'vue-chartjs'
 import { useApi } from '@/composables/useApi'
 import { useSprintSelector } from '@/composables/useSprintSelector'
 import type { TimeAnalysisResponse } from '@/types'
+import TimeSelector from '@/components/TimeSelector.vue'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -83,7 +84,13 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getTimeAnalysis(sprint.value, mode.value, project.value || undefined)
+    data.value = await getTimeAnalysis(
+      selectionMode.value === 'sprint' ? sprint.value : null,
+      mode.value,
+      project.value || undefined,
+      selectionMode.value === 'date' ? startDate.value : undefined,
+      selectionMode.value === 'date' ? endDate.value : undefined
+    )
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -108,7 +115,7 @@ function issuesVarianceClass(v: number | null): string {
   return v < 0 ? 'var-neg' : ''
 }
 
-const { sprint, sprints, project } = useSprintSelector(load)
+const { sprint, sprints, project, selectionMode, startDate, endDate } = useSprintSelector(load)
 watch(mode, load)
 </script>
 
@@ -117,12 +124,14 @@ watch(mode, load)
     <div class="ta-header">
       <h2>Time Analysis</h2>
       <div class="ta-controls">
-        <div class="sprint-selector">
-          <label>Sprint:</label>
-          <select v-model="sprint" @change="load">
-            <option v-for="s in sprints" :key="s" :value="s">{{ s }}</option>
-          </select>
-        </div>
+        <TimeSelector
+          v-model:selectionMode="selectionMode"
+          v-model:sprint="sprint"
+          :sprints="sprints"
+          v-model:startDate="startDate"
+          v-model:endDate="endDate"
+          @change="load"
+        />
         <div class="mode-toggle">
           <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
           <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>

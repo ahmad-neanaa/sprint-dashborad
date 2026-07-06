@@ -90,6 +90,3 @@ When building the backend, refactor them into separate `lib/calculators.ts` modu
 - When you ask the agent to implement a feature, it will propose changes to both frontend and backend.
 - The agent will respect the folder structure and TypeScript conventions.
 - If clarification is needed, the agent will ask before making assumptions.
-
-
-

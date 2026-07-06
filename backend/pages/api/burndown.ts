@@ -8,20 +8,22 @@ export default function handler(
 ) {
   runMigrations()
 
-  const { sprint, mode, project } = req.query
+  const { sprint, mode, project, startDate, endDate } = req.query
   const projectName = typeof project === 'string' && project.length > 0 ? project : undefined
-
-  if (!sprint || typeof sprint !== 'string') {
-    return res.status(400).json({ error: 'Missing or invalid "sprint" query parameter' })
-  }
-
   const burndownMode = mode === 'issues' ? 'issues' : 'points'
 
-  const data = buildBurndown(sprint, burndownMode, projectName)
-
-  if (!data) {
-    return res.status(404).json({ error: `Sprint "${sprint}" not found` })
+  let data
+  if (typeof sprint === 'string' && sprint.length > 0) {
+    data = buildBurndown(sprint, burndownMode, projectName)
+  } else if (typeof startDate === 'string' && typeof endDate === 'string' && startDate && endDate) {
+    data = buildBurndown(null, burndownMode, projectName, startDate, endDate)
+  } else {
+    return res.status(400).json({ error: 'Missing or invalid "sprint" or "startDate"/"endDate" query parameter(s)' })
   }
 
-  res.status(200).json({ sprint, mode: burndownMode, ...data })
+  if (!data) {
+    return res.status(404).json({ error: 'Data not found' })
+  }
+
+  res.status(200).json({ sprint: sprint || `${startDate} to ${endDate}`, mode: burndownMode, ...data })
 }
