@@ -27,13 +27,24 @@ ChartJS.register(
   Legend,
 )
 
-const { getVelocity } = useApi()
+const { getVelocity, getIssueTypes } = useApi()
 
 const mode = ref<'points' | 'issues'>('points')
 const data = ref<VelocityResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
 const drawerOpen = ref(false)
+const issueType = ref('')
+const issueTypes = ref<string[]>([])
+
+async function loadIssueTypes() {
+  try {
+    const r = await getIssueTypes(project.value || undefined)
+    issueTypes.value = r.types
+  } catch {
+    issueTypes.value = []
+  }
+}
 
 const chartData = computed(() => {
   if (!data.value || data.value.velocity.length === 0) return null
@@ -116,7 +127,7 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    data.value = await getVelocity(mode.value, project.value || undefined)
+    data.value = await getVelocity(mode.value, project.value || undefined, issueType.value || undefined)
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -130,8 +141,14 @@ function diffClass(val: number): string {
   return ''
 }
 
-const { project } = useProjectWatcher(load)
+const { project } = useProjectWatcher(async () => {
+  issueType.value = ''
+  await loadIssueTypes()
+  await load()
+})
+
 watch(mode, load)
+watch(issueType, load)
 </script>
 
 <template>
@@ -139,6 +156,13 @@ watch(mode, load)
     <div class="velocity-header">
       <h2>Velocity</h2>
       <div class="velocity-controls">
+        <div class="type-filter">
+          <label for="type-select">Type:</label>
+          <select id="type-select" v-model="issueType">
+            <option value="">All Types</option>
+            <option v-for="t in issueTypes" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
         <div class="mode-toggle">
           <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
           <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
@@ -412,4 +436,35 @@ watch(mode, load)
 
 .diff-pos { color: #00875a; }
 .diff-neg { color: #de350b; }
+
+.velocity-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.type-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.type-filter label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #5e6c84;
+  text-transform: uppercase;
+}
+
+.type-filter select {
+  padding: 6px 12px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  font-size: 13px;
+  background: #fff;
+  color: #0f172a;
+  outline: none;
+  cursor: pointer;
+  min-width: 120px;
+}
 </style>

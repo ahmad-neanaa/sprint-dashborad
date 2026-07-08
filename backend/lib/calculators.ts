@@ -18,12 +18,26 @@ function getSprintProjectFilter(projectName?: string): { sql: string; params: un
   return { sql: 'AND i.project_id = ?', params: [pid] }
 }
 
+function getIssueTypeFilter(issueType?: string, prefix = 'i'): { sql: string; params: unknown[] } {
+  if (!issueType) return { sql: '', params: [] }
+  const field = prefix ? `${prefix}.type` : 'type'
+  return { sql: ` AND ${field} = ?`, params: [issueType] }
+}
+
 function getDoneValue(projectName?: string): string {
   if (projectName) {
     const row = getDb().prepare("SELECT done_value FROM projects WHERE name = ?").get(projectName) as { done_value: string } | undefined
     if (row?.done_value) return row.done_value
   }
   return 'Done'
+}
+
+function getInProgressValue(projectName?: string): string {
+  if (projectName) {
+    const row = getDb().prepare("SELECT in_progress_value FROM projects WHERE name = ?").get(projectName) as { in_progress_value: string } | undefined
+    if (row?.in_progress_value) return row.in_progress_value
+  }
+  return 'In Progress'
 }
 
 function getExpectedHours(projectName?: string): number {
@@ -67,10 +81,13 @@ export interface BurndownData {
   items: BurndownItem[]
 }
 
-export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issues' = 'points', projectName?: string, startDate?: string, endDate?: string): BurndownData | null {
+export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issues' = 'points', projectName?: string, startDate?: string, endDate?: string, issueType?: string): BurndownData | null {
   const db = getDb()
+  const doneStatus = getDoneValue(projectName)
+  const inProgressStatus = getInProgressValue(projectName)
   const projectFilter = getProjectFilter(projectName)
   const sprintProjectFilter = getSprintProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   let startStr: string
   let totalDays: number
@@ -86,11 +103,28 @@ export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issu
     totalDays = sprint.duration
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+              COALESCE(
+                (
+                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                  FROM item_transitions t
+                  WHERE t.item_id = i.id AND t.status = ?
+                ),
+                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+              )
+            ELSE
+              COALESCE((
+                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+                FROM item_transitions t
+                WHERE t.item_id = i.id AND t.status = ?
+              ), 0)
+            END) as actual_time,
+            i.assignee, i.closed_at
           FROM items i
-          WHERE i.sprint_id = ? ${sprintProjectFilter.sql}`
+          WHERE i.sprint_id = ? ${sprintProjectFilter.sql} ${typeFilter.sql}`
       )
-      .all(sprint.id, ...sprintProjectFilter.params) as BurndownItem[]
+      .all(doneStatus, inProgressStatus, inProgressStatus, sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as BurndownItem[]
   } else if (startDate && endDate) {
     startStr = startDate
     const start = new Date(startDate)
@@ -98,11 +132,28 @@ export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issu
     totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)))
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+              COALESCE(
+                (
+                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                  FROM item_transitions t
+                  WHERE t.item_id = i.id AND t.status = ?
+                ),
+                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+              )
+            ELSE
+              COALESCE((
+                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+                FROM item_transitions t
+                WHERE t.item_id = i.id AND t.status = ?
+              ), 0)
+            END) as actual_time,
+            i.assignee, i.closed_at
           FROM items i
-          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql}`
+          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}`
       )
-      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params) as BurndownItem[]
+      .all(doneStatus, inProgressStatus, inProgressStatus, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as BurndownItem[]
   } else {
     return null
   }
@@ -120,7 +171,6 @@ export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issu
   )
   const daysLeft = totalDays - dayIndex
 
-  const doneStatus = getDoneValue(projectName)
   const total = mode === 'points' ? expectedHours : items.length
   const closedItems = items.filter((i) => i.status === doneStatus)
   const completed = mode === 'points'
@@ -183,26 +233,50 @@ export interface VelocityData {
   sprintCount: number
 }
 
-export function buildVelocity(mode: 'points' | 'issues' = 'points', projectName?: string): VelocityData {
+export function buildVelocity(mode: 'points' | 'issues' = 'points', projectName?: string, issueType?: string): VelocityData {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
+  const inProgressStatus = getInProgressValue(projectName)
   const projectFilter = getProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
-  const countExpr = mode === 'points'
-    ? "COALESCE(SUM(CASE WHEN i.status = ? THEN i.actual_time ELSE 0 END), 0)"
-    : "COUNT(CASE WHEN i.status = ? THEN 1 END)"
-  const bindParams: unknown[] = [doneStatus]
+  const bindParams: unknown[] = []
+  let countExpr = ''
+  if (mode === 'points') {
+    countExpr = `COALESCE(SUM(CASE WHEN i.status = ? THEN 
+        COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+          COALESCE(
+            (
+              SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+              FROM item_transitions t
+              WHERE t.item_id = i.id AND t.status = ?
+            ),
+            (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+          )
+        ELSE
+          COALESCE((
+            SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+            FROM item_transitions t
+            WHERE t.item_id = i.id AND t.status = ?
+          ), 0)
+        END)
+       ELSE 0 END), 0)`
+    bindParams.push(doneStatus, doneStatus, inProgressStatus, inProgressStatus)
+  } else {
+    countExpr = "COUNT(CASE WHEN i.status = ? THEN 1 END)"
+    bindParams.push(doneStatus)
+  }
 
   const rows = db
     .prepare(
       `SELECT s.title AS sprint, ${countExpr} AS completed
        FROM sprints s
-       LEFT JOIN items i ON i.sprint_id = s.id
+       LEFT JOIN items i ON i.sprint_id = s.id ${typeFilter.sql}
        WHERE 1=1 ${projectFilter.sql}
        GROUP BY s.id
        ORDER BY s.start_date`
     )
-    .all(...bindParams, ...projectFilter.params) as VelocityEntry[]
+    .all(...bindParams, ...typeFilter.params, ...projectFilter.params) as VelocityEntry[]
 
   const target = getExpectedHours(projectName)
   const completedValues = rows.map((r) => r.completed)
@@ -226,13 +300,30 @@ export function buildVelocity(mode: 'points' | 'issues' = 'points', projectName?
     const latest = rows[rows.length - 1]
     const items = db
       .prepare(
-        `SELECT title, number, url, type, status, effort, actual_time, assignee, closed_at
-         FROM items
-         WHERE sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql})
-           AND status = ?
-         ORDER BY closed_at`
+        `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+           COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+             COALESCE(
+               (
+                 SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                 FROM item_transitions t
+                 WHERE t.item_id = i.id AND t.status = ?
+               ),
+               (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+             )
+           ELSE
+             COALESCE((
+               SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+               FROM item_transitions t
+               WHERE t.item_id = i.id AND t.status = ?
+             ), 0)
+           END) as actual_time,
+           i.assignee, i.closed_at
+         FROM items i
+         WHERE i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql})
+           AND i.status = ? ${typeFilter.sql}
+         ORDER BY i.closed_at`
       )
-      .all(latest.sprint, ...projectFilter.params, doneStatus) as BurndownItem[]
+      .all(doneStatus, inProgressStatus, inProgressStatus, latest.sprint, ...projectFilter.params, doneStatus, ...typeFilter.params) as BurndownItem[]
 
     currentSprint = {
       title: latest.sprint,
@@ -303,11 +394,13 @@ export interface OverviewData {
   stories: OverviewStory[]
 }
 
-export function buildOverview(sprintTitle: string | null, mode: 'points' | 'issues' = 'points', projectName?: string, startDate?: string, endDate?: string): OverviewData | null {
+export function buildOverview(sprintTitle: string | null, mode: 'points' | 'issues' = 'points', projectName?: string, startDate?: string, endDate?: string, issueType?: string): OverviewData | null {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
+  const inProgressStatus = getInProgressValue(projectName)
   const projectFilter = getProjectFilter(projectName)
   const sprintProjectFilter = getSprintProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   let startStr: string
   let duration: number
@@ -323,12 +416,29 @@ export function buildOverview(sprintTitle: string | null, mode: 'points' | 'issu
     duration = sprint.duration
     stories = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+              COALESCE(
+                (
+                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                  FROM item_transitions t
+                  WHERE t.item_id = i.id AND t.status = ?
+                ),
+                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+              )
+            ELSE
+              COALESCE((
+                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+                FROM item_transitions t
+                WHERE t.item_id = i.id AND t.status = ?
+              ), 0)
+            END) as actual_time,
+            i.assignee, i.closed_at
           FROM items i
-          WHERE i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}) ${sprintProjectFilter.sql}
+          WHERE i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.type, i.title`
       )
-      .all(sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params) as OverviewStory[]
+      .all(doneStatus, inProgressStatus, inProgressStatus, sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params, ...typeFilter.params) as OverviewStory[]
   } else if (startDate && endDate) {
     startStr = startDate
     const start = new Date(startDate)
@@ -336,12 +446,29 @@ export function buildOverview(sprintTitle: string | null, mode: 'points' | 'issu
     duration = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)))
     stories = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+              COALESCE(
+                (
+                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                  FROM item_transitions t
+                  WHERE t.item_id = i.id AND t.status = ?
+                ),
+                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+              )
+            ELSE
+              COALESCE((
+                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+                FROM item_transitions t
+                WHERE t.item_id = i.id AND t.status = ?
+              ), 0)
+            END) as actual_time,
+            i.assignee, i.closed_at
           FROM items i
-          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql}
+          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.type, i.title`
       )
-      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params) as OverviewStory[]
+      .all(doneStatus, inProgressStatus, inProgressStatus, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as OverviewStory[]
   } else {
     return null
   }
@@ -426,11 +553,13 @@ export interface TimeAnalysisData {
   issues: TimeAnalysisIssue[]
 }
 
-export function buildTimeAnalysis(sprintTitle: string | null, mode: 'points' | 'issues' = 'points', projectName?: string, startDate?: string, endDate?: string): TimeAnalysisData | null {
+export function buildTimeAnalysis(sprintTitle: string | null, mode: 'points' | 'issues' = 'points', projectName?: string, startDate?: string, endDate?: string, issueType?: string): TimeAnalysisData | null {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
+  const inProgressStatus = getInProgressValue(projectName)
   const projectFilter = getProjectFilter(projectName)
   const sprintProjectFilter = getSprintProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   let items: {
     title: string
@@ -453,21 +582,55 @@ export function buildTimeAnalysis(sprintTitle: string | null, mode: 'points' | '
 
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+              COALESCE(
+                (
+                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                  FROM item_transitions t
+                  WHERE t.item_id = i.id AND t.status = ?
+                ),
+                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+              )
+            ELSE
+              COALESCE((
+                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+                FROM item_transitions t
+                WHERE t.item_id = i.id AND t.status = ?
+              ), 0)
+            END) as actual_time,
+            i.assignee, i.closed_at
           FROM items i
-          WHERE i.sprint_id = ? ${sprintProjectFilter.sql}
+          WHERE i.sprint_id = ? ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
       )
-      .all(sprint.id, ...sprintProjectFilter.params) as typeof items
+      .all(doneStatus, inProgressStatus, inProgressStatus, sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as typeof items
   } else if (startDate && endDate) {
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+              COALESCE(
+                (
+                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                  FROM item_transitions t
+                  WHERE t.item_id = i.id AND t.status = ?
+                ),
+                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+              )
+            ELSE
+              COALESCE((
+                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+                FROM item_transitions t
+                WHERE t.item_id = i.id AND t.status = ?
+              ), 0)
+            END) as actual_time,
+            i.assignee, i.closed_at
           FROM items i
-          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql}
+          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
       )
-      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params) as typeof items
+      .all(doneStatus, inProgressStatus, inProgressStatus, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as typeof items
   } else {
     return null
   }
@@ -565,15 +728,17 @@ function kpiRating(days: number): 'Good' | 'Fair' | 'Poor' {
   return 'Poor'
 }
 
-export function buildCycleTime(sprintTitle: string | null, projectName?: string, startDate?: string, endDate?: string): CycleTimeData | null {
+export function buildCycleTime(sprintTitle: string | null, projectName?: string, startDate?: string, endDate?: string, issueType?: string): CycleTimeData | null {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
+  const inProgressStatus = getInProgressValue(projectName)
   const projectFilter = getProjectFilter(projectName)
   const sprintProjectFilter = getSprintProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   let startStr: string
   let duration: number
-  let items: { title: string; number: number; url: string; assignee: string | null; closed_at: string | null; sprint_start?: string; sprint_duration?: number }[]
+  let items: { title: string; number: number; url: string; assignee: string | null; closed_at: string | null; calculated_cycle_time: number; sprint_start?: string; sprint_duration?: number }[]
 
   if (sprintTitle) {
     const sprint = db
@@ -586,12 +751,17 @@ export function buildCycleTime(sprintTitle: string | null, projectName?: string,
 
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.assignee, i.closed_at, s.start_date as sprint_start, s.duration as sprint_duration
+         `SELECT i.title, i.number, i.url, i.assignee, i.closed_at, s.start_date as sprint_start, s.duration as sprint_duration,
+            COALESCE((
+              SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date))
+              FROM item_transitions t
+              WHERE t.item_id = i.id AND t.status = ?
+            ), (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at))) as calculated_cycle_time
           FROM items i
           JOIN sprints s ON i.sprint_id = s.id
-          WHERE i.sprint_id = s.id AND s.title = ? AND i.status = ? ${sprintProjectFilter.sql}`
+          WHERE i.sprint_id = s.id AND s.title = ? AND i.status = ? ${sprintProjectFilter.sql} ${typeFilter.sql}`
       )
-      .all(sprintTitle, doneStatus, ...sprintProjectFilter.params) as typeof items
+      .all(inProgressStatus, sprintTitle, doneStatus, ...sprintProjectFilter.params, ...typeFilter.params) as typeof items
   } else if (startDate && endDate) {
     startStr = startDate
     const start = new Date(startDate)
@@ -600,20 +770,30 @@ export function buildCycleTime(sprintTitle: string | null, projectName?: string,
 
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.assignee, i.closed_at, s.start_date as sprint_start, s.duration as sprint_duration
+         `SELECT i.title, i.number, i.url, i.assignee, i.closed_at, s.start_date as sprint_start, s.duration as sprint_duration,
+            COALESCE((
+              SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date))
+              FROM item_transitions t
+              WHERE t.item_id = i.id AND t.status = ?
+            ), (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at))) as calculated_cycle_time
           FROM items i
           LEFT JOIN sprints s ON i.sprint_id = s.id
-          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) AND i.status = ? ${sprintProjectFilter.sql}`
+          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) AND i.status = ? ${sprintProjectFilter.sql} ${typeFilter.sql}`
       )
-      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', doneStatus, ...sprintProjectFilter.params) as typeof items
+      .all(inProgressStatus, endDate + ' 23:59:59', startDate + ' 00:00:00', doneStatus, ...sprintProjectFilter.params, ...typeFilter.params) as typeof items
   } else {
     return null
   }
 
-  const cycleTimes = items.map((i) => ({
-    ...i,
-    cycleTime: calcCycleTime(i.sprint_start || startStr, i.closed_at, i.sprint_duration || duration),
-  })).filter((i) => i.cycleTime != null)
+  const cycleTimes = items.map((i) => {
+    let ct = i.calculated_cycle_time
+    if (ct <= 0) ct = 0.1
+    const cap = i.sprint_duration || duration
+    return {
+      ...i,
+      cycleTime: Math.round(Math.min(ct, cap) * 10) / 10,
+    }
+  })
 
   const currentAvg = cycleTimes.length > 0
     ? Math.round((cycleTimes.reduce((s, i) => s + i.cycleTime!, 0) / cycleTimes.length) * 10) / 10
@@ -653,12 +833,24 @@ export function buildCycleTime(sprintTitle: string | null, projectName?: string,
   let sprintCount = 0
   for (const s of allSprints) {
     const sprintItems = db
-      .prepare("SELECT closed_at FROM items WHERE sprint_id = ? AND status = ?")
-      .all(s.id, doneStatus) as { closed_at: string | null }[]
+      .prepare(`
+        SELECT
+          COALESCE((
+            SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date))
+            FROM item_transitions t
+            WHERE t.item_id = i.id AND t.status = ?
+          ), (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at))) as calculated_cycle_time
+        FROM items i
+        WHERE i.sprint_id = ? AND i.status = ?` + typeFilter.sql
+      )
+      .all(inProgressStatus, s.id, doneStatus, ...typeFilter.params) as { calculated_cycle_time: number }[]
 
     const times = sprintItems
-      .map((i) => calcCycleTime(s.start_date, i.closed_at, s.duration))
-      .filter((t): t is number => t != null)
+      .map((i) => {
+        let ct = i.calculated_cycle_time
+        if (ct <= 0) ct = 0.1
+        return Math.min(ct, s.duration)
+      })
 
     if (times.length > 0) {
       const avg = Math.round((times.reduce((a, b) => a + b, 0) / times.length) * 10) / 10
@@ -706,10 +898,11 @@ function rateToRating(rate: number): 'Good' | 'Fair' | 'Poor' {
   return 'Poor'
 }
 
-export function buildCommitment(mode: 'points' | 'issues' = 'points', projectName?: string): CommitmentData {
+export function buildCommitment(mode: 'points' | 'issues' = 'points', projectName?: string, issueType?: string): CommitmentData {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
   const projectFilter = getProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   const sprints = db
     .prepare(`SELECT id, title FROM sprints s WHERE 1=1 ${projectFilter.sql} ORDER BY s.start_date`)
@@ -720,8 +913,8 @@ export function buildCommitment(mode: 'points' | 'issues' = 'points', projectNam
   const sprintRows: CommitmentSprint[] = []
   for (const s of sprints) {
     const items = db
-      .prepare('SELECT effort, actual_time, status FROM items WHERE sprint_id = ?')
-      .all(s.id) as { effort: number | null; actual_time: number | null; status: string }[]
+      .prepare('SELECT effort, actual_time, status FROM items i WHERE i.sprint_id = ?' + typeFilter.sql)
+      .all(s.id, ...typeFilter.params) as { effort: number | null; actual_time: number | null; status: string }[]
 
     const committed = mode === 'points'
       ? items.reduce((sum, i) => sum + (i.effort ?? 0), 0)
@@ -796,12 +989,15 @@ export function buildCommitmentByAssignee(
   mode: 'points' | 'issues' = 'points',
   projectName?: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  issueType?: string
 ): CommitAssigneeData | null {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
+  const inProgressStatus = getInProgressValue(projectName)
   const projectFilter = getProjectFilter(projectName)
   const sprintProjectFilter = getSprintProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   let items: CommitAssigneeItem[]
 
@@ -813,21 +1009,53 @@ export function buildCommitmentByAssignee(
 
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee,
+            CASE WHEN i.status = ? THEN
+              COALESCE(
+                (
+                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date)))
+                  FROM item_transitions t
+                  WHERE t.item_id = i.id AND t.status = ?
+                ),
+                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at))
+              )
+            ELSE
+              COALESCE((
+                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date))
+                FROM item_transitions t
+                WHERE t.item_id = i.id AND t.status = ?
+              ), 0)
+            END as in_progress_days
           FROM items i
-          WHERE i.sprint_id = ? AND i.assignee IS NOT NULL ${sprintProjectFilter.sql}
+          WHERE i.sprint_id = ? AND i.assignee IS NOT NULL ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
       )
-      .all(sprint.id, ...sprintProjectFilter.params) as CommitAssigneeItem[]
+      .all(doneStatus, inProgressStatus, inProgressStatus, sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as any[]
   } else if (startDate && endDate) {
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee,
+            CASE WHEN i.status = ? THEN
+              COALESCE(
+                (
+                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date)))
+                  FROM item_transitions t
+                  WHERE t.item_id = i.id AND t.status = ?
+                ),
+                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at))
+              )
+            ELSE
+              COALESCE((
+                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date))
+                FROM item_transitions t
+                WHERE t.item_id = i.id AND t.status = ?
+              ), 0)
+            END as in_progress_days
           FROM items i
-          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) AND i.assignee IS NOT NULL ${sprintProjectFilter.sql}
+          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) AND i.assignee IS NOT NULL ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
       )
-      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params) as CommitAssigneeItem[]
+      .all(doneStatus, inProgressStatus, inProgressStatus, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as any[]
   } else {
     return null
   }
@@ -840,10 +1068,17 @@ export function buildCommitmentByAssignee(
       assigneeMap.set(name, { estimated: 0, actual: 0, count: 0, items: [] })
     }
     const m = assigneeMap.get(name)!
+    
+    const resolvedActualTime = i.actual_time ?? ((i as any).in_progress_days * 8)
+
     m.estimated += mode === 'points' ? (i.effort ?? 0) : 1
-    m.actual += (i.status === doneStatus) ? (mode === 'points' ? (i.actual_time ?? 0) : 1) : 0
+    m.actual += (i.status === doneStatus) ? (mode === 'points' ? (resolvedActualTime ?? 0) : 1) : 0
     m.count++
-    m.items.push(i)
+    
+    m.items.push({
+      ...i,
+      actual_time: resolvedActualTime
+    })
   }
 
   let totalEstimated = 0
@@ -915,11 +1150,12 @@ function defectsRating(rate: number): 'Good' | 'Fair' | 'Poor' {
   return 'Poor'
 }
 
-export function buildDefects(sprintTitle: string | null, projectName?: string, startDate?: string, endDate?: string): DefectData | null {
+export function buildDefects(sprintTitle: string | null, projectName?: string, startDate?: string, endDate?: string, issueType?: string): DefectData | null {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
   const projectFilter = getProjectFilter(projectName)
   const sprintProjectFilter = getSprintProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   let items: BurndownItem[]
 
@@ -933,19 +1169,19 @@ export function buildDefects(sprintTitle: string | null, projectName?: string, s
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
           FROM items i
-          WHERE i.sprint_id = ? ${sprintProjectFilter.sql}
+          WHERE i.sprint_id = ? ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.title`
       )
-      .all(sprint.id, ...sprintProjectFilter.params) as BurndownItem[]
+      .all(sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as BurndownItem[]
   } else if (startDate && endDate) {
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
           FROM items i
-          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql}
+          WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.title`
       )
-      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params) as BurndownItem[]
+      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as BurndownItem[]
   } else {
     return null
   }
@@ -988,8 +1224,8 @@ export function buildDefects(sprintTitle: string | null, projectName?: string, s
 
   const trend: DefectTrendEntry[] = allSprints.map((s) => {
     const sprintItems = db
-      .prepare('SELECT type FROM items WHERE sprint_id = ?')
-      .all(s.id) as { type: string }[]
+      .prepare('SELECT type FROM items i WHERE i.sprint_id = ?' + typeFilter.sql)
+      .all(s.id, ...typeFilter.params) as { type: string }[]
     const total = sprintItems.length
     const bugs = sprintItems.filter((i) => i.type === 'bug').length
     return {
@@ -1055,10 +1291,11 @@ function estimationRating(varPct: number): 'Good' | 'Fair' | 'Poor' {
   return 'Poor'
 }
 
-export function buildScorecard(sprintTitle: string | null, projectName?: string, startDate?: string, endDate?: string): ScorecardData | null {
+export function buildScorecard(sprintTitle: string | null, projectName?: string, startDate?: string, endDate?: string, issueType?: string): ScorecardData | null {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
   const projectFilter = getProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   let startStr: string
   let duration: number
@@ -1079,7 +1316,7 @@ export function buildScorecard(sprintTitle: string | null, projectName?: string,
     return null
   }
 
-  const commitment = buildCommitment('points', projectName)
+  const commitment = buildCommitment('points', projectName, issueType)
   const currentSprintCommit = sprintTitle ? commitment.sprints.find((s) => s.sprint === sprintTitle) : null
   
   let deliveryRate = 0
@@ -1093,36 +1330,36 @@ export function buildScorecard(sprintTitle: string | null, projectName?: string,
     const items = db
       .prepare(
         `SELECT effort, actual_time, status FROM items i
-         WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${getSprintProjectFilter(projectName).sql}`
+         WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${getSprintProjectFilter(projectName).sql} ${typeFilter.sql}`
       )
-      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...getSprintProjectFilter(projectName).params) as { effort: number | null; actual_time: number | null; status: string }[]
+      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...getSprintProjectFilter(projectName).params, ...typeFilter.params) as { effort: number | null; actual_time: number | null; status: string }[]
     committedHours = items.reduce((sum, i) => sum + (i.effort ?? 0), 0)
     deliveredHours = items.filter((i) => i.status === doneStatus).reduce((sum, i) => sum + (i.actual_time ?? 0), 0)
     deliveryRate = committedHours > 0 ? Math.round((deliveredHours / committedHours) * 100) : 0
   }
   const deliveryKpi = rateToRating(deliveryRate)
 
-  const cycleData = buildCycleTime(sprintTitle, projectName, startDate, endDate)
+  const cycleData = buildCycleTime(sprintTitle, projectName, startDate, endDate, issueType)
   const cycleTime = cycleData?.summary.currentAvg ?? 0
   const cycleKpi = cycleData?.summary.kpiRating ?? 'Good'
 
-  const defectData = buildDefects(sprintTitle, projectName, startDate, endDate)
+  const defectData = buildDefects(sprintTitle, projectName, startDate, endDate, issueType)
   const defectRate = defectData?.summary.defectRate ?? 0
   const defectKpi = defectData?.summary.kpiRating ?? 'Good'
 
-  const velocity = buildVelocity('points', projectName)
+  const velocity = buildVelocity('points', projectName, issueType)
   const velocityCompleted = sprintTitle ? (velocity.currentSprint?.completed ?? 0) : deliveredHours
   const velocityAverage = velocity.average
   const velocityDiff = Math.round((velocityCompleted - velocityAverage) * 10) / 10
 
-  const timeData = buildTimeAnalysis(sprintTitle, 'points', projectName, startDate, endDate)
+  const timeData = buildTimeAnalysis(sprintTitle, 'points', projectName, startDate, endDate, issueType)
   const totalEst = timeData?.summary.totalEstimated ?? 1
   const totalAct = timeData?.summary.totalActual ?? 0
   const estimationVariance = Math.round((totalAct - totalEst) * 10) / 10
   const estimationVariancePct = totalEst > 0 ? Math.round(((totalAct - totalEst) / totalEst) * 100) : 0
   const estimationKpi = estimationRating(estimationVariancePct)
 
-  const burndown = buildBurndown(sprintTitle, 'points', projectName, startDate, endDate)
+  const burndown = buildBurndown(sprintTitle, 'points', projectName, startDate, endDate, issueType)
   const burndownPct = burndown?.summary.percentComplete ?? 0
   const issuesTotal = burndown?.items.length ?? 0
   const issuesCompleted = burndown?.items.filter((i) => i.status === doneStatus).length ?? 0
@@ -1135,10 +1372,10 @@ export function buildScorecard(sprintTitle: string | null, projectName?: string,
   )
   const daysLeft = duration - dayIndex
 
-  const team = buildTeamStats(sprintTitle, 'points', projectName, startDate, endDate)
+  const team = buildTeamStats(sprintTitle, 'points', projectName, startDate, endDate, issueType)
   const activeMembers = team.summary.activeMembers
 
-  const overview = buildOverview(sprintTitle, 'points', projectName, startDate, endDate)
+  const overview = buildOverview(sprintTitle, 'points', projectName, startDate, endDate, issueType)
   const issuesAtRisk = overview?.stories.filter((s) => s.status === 'In Progress' || s.status === 'To Do').length ?? 0
 
   const ratings = [deliveryKpi, cycleKpi, defectKpi, estimationKpi]
@@ -1246,10 +1483,11 @@ function stdDev(values: number[]): number {
   return Math.round(Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
 }
 
-export function buildStability(sprintTitle: string | null, projectName?: string, startDate?: string, endDate?: string): StabilityData | null {
+export function buildStability(sprintTitle: string | null, projectName?: string, startDate?: string, endDate?: string, issueType?: string): StabilityData | null {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
   const projectFilter = getProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   const allSprints = db
     .prepare(`SELECT id, title FROM sprints s WHERE 1=1 ${projectFilter.sql} ORDER BY s.start_date`)
@@ -1257,8 +1495,8 @@ export function buildStability(sprintTitle: string | null, projectName?: string,
 
   const sprintMetrics: StabilitySprintMetric[] = allSprints.map((s) => {
     const items = db
-      .prepare('SELECT effort, actual_time, status FROM items WHERE sprint_id = ?')
-      .all(s.id) as { effort: number | null; actual_time: number | null; status: string }[]
+      .prepare('SELECT effort, actual_time, status FROM items i WHERE i.sprint_id = ?' + typeFilter.sql)
+      .all(s.id, ...typeFilter.params) as { effort: number | null; actual_time: number | null; status: string }[]
 
     const totalEst = items.reduce((sum, i) => sum + (i.effort ?? 0), 0)
     const totalAct = items.reduce((sum, i) => sum + (i.actual_time ?? 0), 0)
@@ -1291,9 +1529,9 @@ export function buildStability(sprintTitle: string | null, projectName?: string,
     const items = db
       .prepare(
         `SELECT effort, actual_time, status FROM items i
-         WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${getSprintProjectFilter(projectName).sql}`
+         WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${getSprintProjectFilter(projectName).sql} ${typeFilter.sql}`
       )
-      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...getSprintProjectFilter(projectName).params) as { effort: number | null; actual_time: number | null; status: string }[]
+      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...getSprintProjectFilter(projectName).params, ...typeFilter.params) as { effort: number | null; actual_time: number | null; status: string }[]
     const totalEst = items.reduce((sum, i) => sum + (i.effort ?? 0), 0)
     const totalAct = items.reduce((sum, i) => sum + (i.actual_time ?? 0), 0)
     const estimationAccuracy = totalEst > 0
@@ -1359,13 +1597,16 @@ export function buildTeamStats(
   mode: 'points' | 'issues' = 'points',
   projectName?: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  issueType?: string
 ): TeamData {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
+  const inProgressStatus = getInProgressValue(projectName)
 
   const projectFilter = getProjectFilter(projectName)
   const sprintProjectFilter = getSprintProjectFilter(projectName)
+  const typeFilter = getIssueTypeFilter(issueType)
 
   let sprintFilter = ''
   let sprintParams = projectFilter.params
@@ -1385,31 +1626,82 @@ export function buildTeamStats(
       `SELECT
          i.assignee,
          COALESCE(SUM(i.effort), 0) AS totalEffort,
-         COALESCE(SUM(i.actual_time), 0) AS totalActual,
+         COALESCE(SUM(
+           COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+             COALESCE(
+               (
+                 SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                 FROM item_transitions t
+                 WHERE t.item_id = i.id AND t.status = ?
+               ),
+               (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+             )
+           ELSE
+             COALESCE((
+               SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+               FROM item_transitions t
+               WHERE t.item_id = i.id AND t.status = ?
+             ), 0)
+           END)
+         ), 0) AS totalActual,
          COUNT(CASE WHEN i.status = ? THEN 1 END) AS closedCount
        FROM items i
        LEFT JOIN sprints s ON i.sprint_id = s.id
-       WHERE i.assignee IS NOT NULL ${sprintFilter} ${sprintProjectFilter.sql}
+       WHERE i.assignee IS NOT NULL ${sprintFilter} ${sprintProjectFilter.sql} ${typeFilter.sql}
        GROUP BY i.assignee
        ORDER BY i.assignee`
     )
-    .all(doneStatus, ...sprintParams, ...sprintProjectFilter.params) as { assignee: string; totalEffort: number; totalActual: number; closedCount: number }[]
+    .all(doneStatus, inProgressStatus, inProgressStatus, doneStatus, ...sprintParams, ...sprintProjectFilter.params, ...typeFilter.params) as { assignee: string; totalEffort: number; totalActual: number; closedCount: number }[]
 
   const memberStatements = sprintTitle
     ? db.prepare(
-        `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+        `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+           COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+             COALESCE(
+               (
+                 SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                 FROM item_transitions t
+                 WHERE t.item_id = i.id AND t.status = ?
+               ),
+               (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+             )
+           ELSE
+             COALESCE((
+               SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+               FROM item_transitions t
+               WHERE t.item_id = i.id AND t.status = ?
+             ), 0)
+           END) as actual_time,
+           i.assignee, i.closed_at
          FROM items i
          JOIN sprints s ON i.sprint_id = s.id
          WHERE i.assignee = ? AND i.assignee IS NOT NULL
-           AND s.title = ? ${projectFilter.sql} ${sprintProjectFilter.sql}
+           AND s.title = ? ${projectFilter.sql} ${sprintProjectFilter.sql} ${typeFilter.sql}
          ORDER BY i.status, i.title`
       )
     : (startDate && endDate)
     ? db.prepare(
-        `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+        `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+           COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
+             COALESCE(
+               (
+                 SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
+                 FROM item_transitions t
+                 WHERE t.item_id = i.id AND t.status = ?
+               ),
+               (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+             )
+           ELSE
+             COALESCE((
+               SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
+               FROM item_transitions t
+               WHERE t.item_id = i.id AND t.status = ?
+             ), 0)
+           END) as actual_time,
+           i.assignee, i.closed_at
          FROM items i
          WHERE i.assignee = ? AND i.assignee IS NOT NULL
-           AND i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql}
+           AND i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
          ORDER BY i.status, i.title`
       )
     : null
@@ -1418,9 +1710,9 @@ export function buildTeamStats(
     let items: TeamMemberItem[] = []
     if (memberStatements) {
       if (sprintTitle) {
-        items = memberStatements.all(m.assignee, sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params) as TeamMemberItem[]
+        items = memberStatements.all(doneStatus, inProgressStatus, inProgressStatus, m.assignee, sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params, ...typeFilter.params) as TeamMemberItem[]
       } else if (startDate && endDate) {
-        items = memberStatements.all(m.assignee, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params) as TeamMemberItem[]
+        items = memberStatements.all(doneStatus, inProgressStatus, inProgressStatus, m.assignee, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as TeamMemberItem[]
       }
     }
     const eff = mode === 'issues' ? items.length : m.totalEffort

@@ -31,7 +31,8 @@ async function load() {
       selectionMode.value === 'sprint' ? sprint.value : null,
       project.value || undefined,
       selectionMode.value === 'date' ? startDate.value : undefined,
-      selectionMode.value === 'date' ? endDate.value : undefined
+      selectionMode.value === 'date' ? endDate.value : undefined,
+      issueType.value || undefined
     )
     error.value = ''
   } catch (e) {
@@ -39,7 +40,7 @@ async function load() {
   }
 }
 
-const { sprint, sprints: sprintList, project, selectionMode, startDate, endDate } = useSprintSelector(load)
+const { sprint, sprints: sprintList, project, selectionMode, startDate, endDate, issueType, issueTypes } = useSprintSelector(load)
 
 const trendChartData = computed(() => {
   if (!data.value) return { labels: [], datasets: [] }
@@ -135,6 +136,8 @@ function statusClass(s: string) {
         :sprints="sprintList"
         v-model:startDate="startDate"
         v-model:endDate="endDate"
+        v-model:issueType="issueType"
+        :issueTypes="issueTypes"
         @change="load"
       />
     </div>

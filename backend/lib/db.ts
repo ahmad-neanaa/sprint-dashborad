@@ -17,15 +17,16 @@ export function getDb(): Database.Database {
 
 export function runMigrations(): void {
   const database = getDb()
+  
+  // Check if it is a brand new database (no tables exist yet)
+  const tableCount = (database.prepare("SELECT count(*) as count FROM sqlite_master WHERE type='table'").get() as { count: number }).count
+  const isNewDb = tableCount === 0
+
   const schema = fs.readFileSync(
     path.join(process.cwd(), 'migrations', 'schema.sql'),
     'utf-8'
   )
   database.exec(schema)
-
-  const applied = new Set(
-    (database.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map(r => r.name)
-  )
 
   const migDir = path.join(process.cwd(), 'migrations')
   if (!fs.existsSync(migDir)) return
@@ -34,10 +35,32 @@ export function runMigrations(): void {
     .filter(f => f.endsWith('.sql') && f !== 'schema.sql')
     .sort()
 
+  if (isNewDb) {
+    // Brand new DB: schema.sql contains all latest changes. Skip running migrations, just mark them applied.
+    for (const file of files) {
+      database.prepare('INSERT OR IGNORE INTO _migrations (name) VALUES (?)').run(file)
+    }
+    return
+  }
+
+  const applied = new Set(
+    (database.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map(r => r.name)
+  )
+
   for (const file of files) {
     if (applied.has(file)) continue
     const sql = fs.readFileSync(path.join(migDir, file), 'utf-8')
-    database.exec(sql)
-    database.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file)
+    try {
+      database.exec(sql)
+      database.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file)
+    } catch (error: any) {
+      const msg = error.message || ''
+      if (msg.includes('duplicate column name') || msg.includes('already exists')) {
+        console.warn(`Migration ${file} skipped because target elements already exist: ${msg}`)
+        database.prepare('INSERT OR IGNORE INTO _migrations (name) VALUES (?)').run(file)
+      } else {
+        throw error
+      }
+    }
   }
 }

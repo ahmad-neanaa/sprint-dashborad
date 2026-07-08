@@ -89,7 +89,8 @@ async function load() {
       mode.value,
       project.value || undefined,
       selectionMode.value === 'date' ? startDate.value : undefined,
-      selectionMode.value === 'date' ? endDate.value : undefined
+      selectionMode.value === 'date' ? endDate.value : undefined,
+      issueType.value || undefined
     )
   } catch (e) {
     error.value = String(e)
@@ -115,7 +116,7 @@ function issuesVarianceClass(v: number | null): string {
   return v < 0 ? 'var-neg' : ''
 }
 
-const { sprint, sprints, project, selectionMode, startDate, endDate } = useSprintSelector(load)
+const { sprint, sprints, project, selectionMode, startDate, endDate, issueType, issueTypes } = useSprintSelector(load)
 watch(mode, load)
 </script>
 
@@ -130,6 +131,8 @@ watch(mode, load)
           :sprints="sprints"
           v-model:startDate="startDate"
           v-model:endDate="endDate"
+          v-model:issueType="issueType"
+          :issueTypes="issueTypes"
           @change="load"
         />
         <div class="mode-toggle">

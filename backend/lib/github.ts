@@ -11,6 +11,12 @@ export interface FieldMappings {
   typeField: string
 }
 
+export interface ItemTransition {
+  status: string
+  start_date: string
+  end_date: string | null
+}
+
 interface ProjectItem {
   github_id: number
   title: string
@@ -26,6 +32,7 @@ interface ProjectItem {
   sprintDuration: number | null
   closed_at: string | null
   created_at: string
+  transitions: ItemTransition[]
 }
 
 export interface ProjectConfig {
@@ -64,6 +71,7 @@ query($id: ID!, $after: String) {
               number
               url
               state
+              createdAt
               closedAt
               assignees(first: 10) {
                 nodes {
@@ -87,6 +95,7 @@ query($id: ID!, $after: String) {
               number
               url
               state
+              createdAt
               closedAt
               assignees(first: 10) {
                 nodes {
@@ -94,9 +103,19 @@ query($id: ID!, $after: String) {
                   avatarUrl
                 }
               }
+              timelineItems(first: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) {
+                nodes {
+                  ... on ProjectV2ItemStatusChangedEvent {
+                    createdAt
+                    previousStatus
+                    status
+                  }
+                }
+              }
             }
             ... on DraftIssue {
               title
+              createdAt
               assignees(first: 10) {
                 nodes {
                   login
@@ -220,6 +239,48 @@ async function graphql<T>(query: string, variables: Record<string, unknown>, tok
   return json.data as T
 }
 
+export function calculateTransitions(
+  createdAt: string,
+  timelineNodes: (StatusChangeEvent | null)[] | undefined,
+  currentStatus: string
+): ItemTransition[] {
+  const transitions: ItemTransition[] = []
+  
+  const events = (timelineNodes ?? [])
+    .filter((e): e is StatusChangeEvent => !!e && !!e.createdAt)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+  if (events.length === 0) {
+    transitions.push({
+      status: currentStatus,
+      start_date: createdAt,
+      end_date: null
+    })
+    return transitions
+  }
+
+  let currentStatusName = events[0].previousStatus || 'To Do'
+  let currentStart = createdAt
+
+  for (const event of events) {
+    transitions.push({
+      status: currentStatusName,
+      start_date: currentStart,
+      end_date: event.createdAt
+    })
+    currentStatusName = event.status || 'To Do'
+    currentStart = event.createdAt
+  }
+
+  transitions.push({
+    status: currentStatusName,
+    start_date: currentStart,
+    end_date: null
+  })
+
+  return transitions
+}
+
 export async function fetchProjectItems(
   projectId: string,
   fieldMappings: FieldMappings,
@@ -259,6 +320,10 @@ export async function fetchProjectItems(
       const customAssignee = customAssigneeField?.name ?? customAssigneeField?.text ?? null
       const assignee = contentAssignee ?? customAssignee ?? null
 
+      const createdAt = (content as any).createdAt ?? new Date().toISOString()
+      const timelineNodes = (content as any).timelineItems?.nodes
+      const transitions = calculateTransitions(createdAt, timelineNodes, status)
+
       items.push({
         github_id: content.databaseId!,
         title: content.title ?? '',
@@ -273,7 +338,8 @@ export async function fetchProjectItems(
         sprintStartDate,
         sprintDuration,
         closed_at: (content as any).closedAt ?? null,
-        created_at: (content as any).createdAt ?? new Date().toISOString(),
+        created_at: createdAt,
+        transitions,
       })
     }
   }
@@ -329,10 +395,20 @@ export async function refreshProject(project: ProjectConfig): Promise<{ itemsCou
       project_id = excluded.project_id,
       closed_at = excluded.closed_at,
       updated_at = datetime('now')
+    RETURNING id
+  `)
+
+  const deleteTransitions = db.prepare(`
+    DELETE FROM item_transitions WHERE item_id = ?
+  `)
+
+  const insertTransition = db.prepare(`
+    INSERT INTO item_transitions (item_id, status, start_date, end_date)
+    VALUES (?, ?, ?, ?)
   `)
 
   for (const item of projectItems) {
-    upsertItem.run(
+    const row = upsertItem.get(
       item.github_id,
       item.title,
       item.number,
@@ -345,7 +421,14 @@ export async function refreshProject(project: ProjectConfig): Promise<{ itemsCou
       item.sprint ? (sprintMap.get(item.sprint) ?? null) : null,
       project.id,
       item.closed_at,
-    )
+    ) as { id: number } | undefined
+
+    if (row?.id) {
+      deleteTransitions.run(row.id)
+      for (const t of item.transitions) {
+        insertTransition.run(row.id, t.status, t.start_date, t.end_date)
+      }
+    }
   }
 
   return { itemsCount: projectItems.length, sprintsCount: seenSprints.size }

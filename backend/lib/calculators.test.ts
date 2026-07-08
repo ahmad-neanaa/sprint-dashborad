@@ -112,4 +112,39 @@ describe('calculators', () => {
     expect(data?.summary.totalStories).toBe(4)
     expect(data?.summary.doneStories).toBe(2)
   })
+
+  it('calculates cycle time and actual hours from transitions when actual_time is null', () => {
+    mockDb.prepare("UPDATE items SET status = 'Done', closed_at = '2026-06-04T10:00:00Z' WHERE id = 3").run()
+    
+    const insertTransition = mockDb.prepare(`
+      INSERT INTO item_transitions (item_id, status, start_date, end_date) VALUES (?, ?, ?, ?)
+    `)
+    insertTransition.run(3, 'To Do', '2026-06-01T00:00:00Z', '2026-06-02T10:00:00Z')
+    insertTransition.run(3, 'In Progress', '2026-06-02T10:00:00Z', '2026-06-04T10:00:00Z')
+    insertTransition.run(3, 'Done', '2026-06-04T10:00:00Z', null)
+
+    const cycleTimeData = calculators.buildCycleTime('Sprint 1', 'Test Project')
+    expect(cycleTimeData).toBeDefined()
+    const aliceCT = cycleTimeData?.assignees.find(a => a.assignee === 'Alice')
+    const item3CT = aliceCT?.items.find(i => i.number === 3)
+    expect(item3CT?.cycleTime).toBe(2)
+
+    const commitmentData = calculators.buildCommitmentByAssignee('Sprint 1', 'points', 'Test Project')
+    expect(commitmentData).toBeDefined()
+    const aliceCommitment = commitmentData?.assignees.find(a => a.assignee === 'Alice')
+    const item3Commit = aliceCommitment?.items.find(i => i.title === 'Story 2')
+    expect(item3Commit?.actual_time).toBe(16)
+  })
+
+  it('calculates actual hours from creation date when no in progress transitions exist', () => {
+    // Seed Bug 2 (id 4) as Done with no transitions and null actual_time
+    mockDb.prepare("UPDATE items SET status = 'Done', actual_time = NULL, closed_at = '2026-06-04T00:00:00Z', created_at = '2026-06-01T00:00:00Z' WHERE id = 4").run()
+
+    // 2026-06-04 - 2026-06-01 = 3 days * 8 hours/day = 24 hours
+    const commitmentData = calculators.buildCommitmentByAssignee('Sprint 1', 'points', 'Test Project')
+    expect(commitmentData).toBeDefined()
+    const aliceCommitment = commitmentData?.assignees.find(a => a.assignee === 'Alice')
+    const item4Commit = aliceCommitment?.items.find(i => i.title === 'Bug 2')
+    expect(item4Commit?.actual_time).toBe(24)
+  })
 })

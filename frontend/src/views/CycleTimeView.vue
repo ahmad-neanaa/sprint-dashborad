@@ -115,7 +115,8 @@ async function load() {
       selectionMode.value === 'sprint' ? sprint.value : null,
       project.value || undefined,
       selectionMode.value === 'date' ? startDate.value : undefined,
-      selectionMode.value === 'date' ? endDate.value : undefined
+      selectionMode.value === 'date' ? endDate.value : undefined,
+      issueType.value || undefined
     )
   } catch (e) {
     error.value = String(e)
@@ -124,7 +125,7 @@ async function load() {
   }
 }
 
-const { sprint, sprints, project, selectionMode, startDate, endDate } = useSprintSelector(load)
+const { sprint, sprints, project, selectionMode, startDate, endDate, issueType, issueTypes } = useSprintSelector(load)
 </script>
 
 <template>
@@ -138,6 +139,8 @@ const { sprint, sprints, project, selectionMode, startDate, endDate } = useSprin
           :sprints="sprints"
           v-model:startDate="startDate"
           v-model:endDate="endDate"
+          v-model:issueType="issueType"
+          :issueTypes="issueTypes"
           @change="load"
         />
         <button class="btn-refresh" @click="load" :disabled="loading">{{ loading ? 'Loading...' : 'Refresh' }}</button>

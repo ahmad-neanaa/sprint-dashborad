@@ -16,23 +16,40 @@ import type { CommitmentResponse, CommitmentSprint } from '@/types'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
-const { getCommitment } = useApi()
+const { getCommitment, getIssueTypes } = useApi()
 
 const mode = ref<'points' | 'issues'>('points')
 const data = ref<CommitmentResponse | null>(null)
 const error = ref('')
+const issueType = ref('')
+const issueTypes = ref<string[]>([])
+
+async function loadIssueTypes() {
+  try {
+    const r = await getIssueTypes(project.value || undefined)
+    issueTypes.value = r.types
+  } catch {
+    issueTypes.value = []
+  }
+}
 
 async function load() {
   try {
-    data.value = await getCommitment(mode.value, project.value || undefined)
+    data.value = await getCommitment(mode.value, project.value || undefined, issueType.value || undefined)
     error.value = ''
   } catch (e) {
     error.value = String(e)
   }
 }
 
-const { project } = useProjectWatcher(load)
+const { project } = useProjectWatcher(async () => {
+  issueType.value = ''
+  await loadIssueTypes()
+  await load()
+})
+
 watch(mode, load)
+watch(issueType, load)
 
 const chartData = computed(() => {
   if (!data.value) return { labels: [], datasets: [] }
@@ -104,9 +121,19 @@ function format(v: number) {
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <div class="mode-toggle">
-      <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Points</button>
-      <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+    <div class="control-row">
+      <div class="mode-toggle">
+        <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Points</button>
+        <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+      </div>
+
+      <div class="type-filter">
+        <label for="type-select">Type:</label>
+        <select id="type-select" v-model="issueType">
+          <option value="">All Types</option>
+          <option v-for="t in issueTypes" :key="t" :value="t">{{ t }}</option>
+        </select>
+      </div>
     </div>
 
     <div v-if="data" class="kpi-row">
@@ -156,3 +183,35 @@ function format(v: number) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.control-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.type-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.type-filter label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #475569;
+}
+.type-filter select {
+  padding: 6px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 14px;
+  background-color: #ffffff;
+  color: #0f172a;
+  outline: none;
+  cursor: pointer;
+  min-width: 140px;
+}
+</style>
