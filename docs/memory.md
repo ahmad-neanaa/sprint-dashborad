@@ -5,7 +5,7 @@
 **DB**: `backend/data/sprint-dashboard.db`
 - `projects` — id, name, github_project_id, github_token, expected_hours, all field mappings, done_value
 - `sprints` — id, title, start_date, duration, project_id FK
-- `items` — id, github_id, title, number, url, type, status, effort, actual_time, assignee, sprint_id FK, project_id FK, closed_at, created_at, updated_at
+- `items` — id, github_id, title, number, url, type, status, state, effort, actual_time, assignee, sprint_id FK, project_id FK, closed_at, created_at, updated_at
 - `config` — global: github_token, last_refreshed, refresh_interval_hours
 - `_migrations` — tracks applied migration files
 

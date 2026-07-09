@@ -1692,6 +1692,7 @@ export interface TimesheetTask {
   url: string
   type: string
   status: string
+  state: string
   effort: number | null
   actual_time: number | null
 }
@@ -1754,6 +1755,7 @@ export function buildTimesheet(
          i.url,
          i.type,
          i.status,
+         i.state,
          i.effort,
          ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time
        FROM items i
@@ -1770,6 +1772,7 @@ export function buildTimesheet(
       url: string
       type: string
       status: string
+      state: string
       effort: number | null
       actual_time: number | null
     }[]
@@ -1785,6 +1788,7 @@ export function buildTimesheet(
       url: row.url,
       type: row.type,
       status: row.status,
+      state: row.state,
       effort: row.effort,
       actual_time: row.actual_time
     })

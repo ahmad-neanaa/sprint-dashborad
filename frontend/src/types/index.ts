@@ -371,6 +371,7 @@ export interface TimesheetTask {
   url: string
   type: string
   status: string
+  state: string
   effort: number | null
   actual_time: number | null
 }

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS items (
   url          TEXT    NOT NULL,
   type         TEXT    NOT NULL DEFAULT 'issue',
   status       TEXT    NOT NULL DEFAULT 'To Do',
+  state        TEXT    NOT NULL DEFAULT 'open',
   effort       REAL,
   actual_time  REAL,
   assignee     TEXT,

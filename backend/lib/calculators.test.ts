@@ -25,13 +25,13 @@ describe('calculators', () => {
     
     // Seed items
     const insertItem = mockDb.prepare(`
-      INSERT INTO items (github_id, title, number, url, type, status, effort, actual_time, assignee, sprint_id, project_id, closed_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO items (github_id, title, number, url, type, status, state, effort, actual_time, assignee, sprint_id, project_id, closed_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
-    insertItem.run(101, 'Story 1', 1, 'url', 'issue', 'Done', 5, 4, 'Alice', 1, 1, '2026-06-05', '2026-06-01')
-    insertItem.run(102, 'Bug 1', 2, 'url', 'bug', 'In Progress', 3, 1, 'Bob', 1, 1, null, '2026-06-01')
-    insertItem.run(103, 'Story 2', 3, 'url', 'issue', 'To Do', 8, null, 'Alice', 1, 1, null, '2026-06-01')
-    insertItem.run(104, 'Bug 2', 4, 'url', 'bug', 'Done', 2, 3, 'Alice', 1, 1, '2026-06-10', '2026-06-01')
+    insertItem.run(101, 'Story 1', 1, 'url', 'issue', 'Done', 'closed', 5, 4, 'Alice', 1, 1, '2026-06-05', '2026-06-01')
+    insertItem.run(102, 'Bug 1', 2, 'url', 'bug', 'In Progress', 'open', 3, 1, 'Bob', 1, 1, null, '2026-06-01')
+    insertItem.run(103, 'Story 2', 3, 'url', 'issue', 'To Do', 'open', 8, null, 'Alice', 1, 1, null, '2026-06-01')
+    insertItem.run(104, 'Bug 2', 4, 'url', 'bug', 'Done', 'closed', 2, 3, 'Alice', 1, 1, '2026-06-10', '2026-06-01')
   })
 
   afterEach(() => {
@@ -160,11 +160,15 @@ describe('calculators', () => {
     expect(alice?.totalActual).toBe(7) // Story 1 (4) + Bug 2 (3) + Story 2 (0)
     expect(alice?.taskCount).toBe(3)
     expect(alice?.tasks).toHaveLength(3)
+    expect(alice?.tasks[0].state).toBe('closed') // Story 1 (number 1) is closed
+    expect(alice?.tasks[1].state).toBe('open')   // Story 2 (number 3) is open
+    expect(alice?.tasks[2].state).toBe('closed') // Bug 2 (number 4) is closed
 
     const bob = data?.assignees.find(a => a.assignee === 'Bob')
     expect(bob).toBeDefined()
     expect(bob?.totalActual).toBe(1)
     expect(bob?.taskCount).toBe(1)
+    expect(bob?.tasks[0].state).toBe('open')
   })
 
   it('buildTimesheet in date range mode', () => {

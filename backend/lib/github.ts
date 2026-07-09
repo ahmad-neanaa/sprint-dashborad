@@ -24,6 +24,7 @@ interface ProjectItem {
   url: string
   type: string
   status: string
+  state: string
   effort: number | null
   actual_time: number | null
   assignee: string | null
@@ -320,6 +321,7 @@ export async function fetchProjectItems(
       const customAssignee = customAssigneeField?.name ?? customAssigneeField?.text ?? null
       const assignee = contentAssignee ?? customAssignee ?? null
 
+      const state = content.state ?? 'open'
       const createdAt = (content as any).createdAt ?? new Date().toISOString()
       const timelineNodes = (content as any).timelineItems?.nodes
       const transitions = calculateTransitions(createdAt, timelineNodes, status)
@@ -331,6 +333,7 @@ export async function fetchProjectItems(
         url: (content as any).url ?? '',
         type: type.toLowerCase(),
         status,
+        state: state.toLowerCase(),
         effort: typeof effort === 'number' ? effort : null,
         actual_time: typeof actualTime === 'number' ? actualTime : null,
         assignee,
@@ -380,14 +383,15 @@ export async function refreshProject(project: ProjectConfig): Promise<{ itemsCou
   const sprintMap = new Map(sprintRows.map((r) => [r.title, r.id]))
 
   const upsertItem = db.prepare(`
-    INSERT INTO items (github_id, title, number, url, type, status, effort, actual_time, assignee, sprint_id, project_id, closed_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO items (github_id, title, number, url, type, status, state, effort, actual_time, assignee, sprint_id, project_id, closed_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(github_id) DO UPDATE SET
       title = excluded.title,
       number = excluded.number,
       url = excluded.url,
       type = excluded.type,
       status = excluded.status,
+      state = excluded.state,
       effort = excluded.effort,
       actual_time = CASE WHEN items.actual_time IS NULL THEN excluded.actual_time ELSE items.actual_time END,
       assignee = excluded.assignee,
@@ -416,6 +420,7 @@ export async function refreshProject(project: ProjectConfig): Promise<{ itemsCou
       item.url,
       item.type,
       item.status,
+      item.state,
       item.effort,
       item.actual_time,
       item.assignee,

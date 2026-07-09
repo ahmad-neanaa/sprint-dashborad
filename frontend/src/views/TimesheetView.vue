@@ -68,6 +68,13 @@ function statusClass(s: string) {
   if (normalized === 'in progress' || normalized === 'dev' || normalized === 'active') return 'badge badge-purple'
   return 'badge badge-gray'
 }
+
+function stateClass(s: string) {
+  const normalized = (s || '').toLowerCase()
+  if (normalized === 'open') return 'badge badge-green'
+  if (normalized === 'closed') return 'badge badge-red'
+  return 'badge badge-gray'
+}
 </script>
 
 <template>
@@ -163,6 +170,7 @@ function statusClass(s: string) {
                           <th>Task</th>
                           <th>Type</th>
                           <th>Status</th>
+                          <th>State</th>
                           <th style="text-align: right;">Effort Est.</th>
                           <th style="text-align: right;">Time Logged</th>
                         </tr>
@@ -180,6 +188,9 @@ function statusClass(s: string) {
                           <td>
                             <span :class="statusClass(task.status)">{{ task.status }}</span>
                           </td>
+                          <td>
+                            <span :class="stateClass(task.state)">{{ task.state }}</span>
+                          </td>
                           <td style="text-align: right;">
                             {{ task.effort != null ? formatHours(task.effort) : '—' }}
                           </td>
@@ -188,7 +199,7 @@ function statusClass(s: string) {
                           </td>
                         </tr>
                         <tr v-if="a.tasks.length === 0">
-                          <td colspan="5" class="empty-state">No tasks recorded for this assignee.</td>
+                          <td colspan="6" class="empty-state">No tasks recorded for this assignee.</td>
                         </tr>
                       </tbody>
                     </table>
