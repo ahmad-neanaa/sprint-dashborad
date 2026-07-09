@@ -1,5 +1,5 @@
 import { inject, provide, ref, type Ref } from 'vue'
-import type { BurndownResponse, VelocityResponse, TeamResponse, OverviewResponse, TimeAnalysisResponse, CycleTimeResponse, CommitmentResponse, CommitAssigneeResponse, DefectResponse, ScorecardResponse, StabilityResponse, KpiReviewResponse, ConfigResponse, SprintsResponse, Project } from '@/types'
+import type { BurndownResponse, VelocityResponse, TeamResponse, OverviewResponse, TimeAnalysisResponse, CycleTimeResponse, CommitmentResponse, CommitAssigneeResponse, DefectResponse, ScorecardResponse, StabilityResponse, KpiReviewResponse, ConfigResponse, SprintsResponse, Project, TimesheetResponse } from '@/types'
 
 export const REFRESH_KEY = Symbol('refresh')
 export const PROJECT_KEY = Symbol('selectedProject')
@@ -100,6 +100,10 @@ export function useApi() {
     return fetchJson(`${BASE}/overview?${timeParams(sprint, startDate, endDate)}&mode=${mode}${projectQuery(project)}${typeQuery(issueType)}`)
   }
 
+  function getTimesheet(sprint: string | null, project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<TimesheetResponse> {
+    return fetchJson(`${BASE}/timesheet?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}${typeQuery(issueType)}`)
+  }
+
   function getSprints(project?: string): Promise<SprintsResponse> {
     const qs = project ? `?project=${encodeURIComponent(project)}` : ''
     return fetchJson(`${BASE}/sprints${qs}`)
@@ -178,5 +182,5 @@ export function useApi() {
     return body
   }
 
-  return { getSprints, getIssueTypes, getBurndown, getVelocity, getTeam, getOverview, getTimeAnalysis, getCycleTime, getCommitment, getCommitmentAssignee, getDefects, getScorecard, getStability, getKpiReview, getConfig, updateConfig, putConfig, refreshData, getProjects, createProject, updateProject, deleteProject }
+  return { getSprints, getIssueTypes, getBurndown, getVelocity, getTeam, getOverview, getTimeAnalysis, getCycleTime, getCommitment, getCommitmentAssignee, getDefects, getScorecard, getStability, getKpiReview, getConfig, updateConfig, putConfig, refreshData, getProjects, createProject, updateProject, deleteProject, getTimesheet }
 }

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useApi } from '@/composables/useApi'
 import { useSprintSelector } from '@/composables/useSprintSelector'
-import type { TeamResponse } from '@/types'
+import { useDataTable } from '@/composables/useDataTable'
+import { formatHours } from '@/utils/format'
+import type { TeamResponse, TeamMemberStat } from '@/types'
 import TimeSelector from '@/components/TimeSelector.vue'
 
 const { getTeam } = useApi()
@@ -53,6 +55,25 @@ function statusClass(status: string): string {
 }
 
 const { sprint, sprints, project, selectionMode, startDate, endDate, issueType, issueTypes } = useSprintSelector(load)
+
+// DataTable setup for team members
+const rawMembers = computed(() => data.value?.members ?? [])
+const {
+  searchQuery,
+  sortKey,
+  sortDir,
+  currentPage,
+  processedItems: paginatedMembers,
+  totalPages,
+  setSort,
+  nextPage,
+  prevPage
+} = useDataTable<TeamMemberStat>(rawMembers, {
+  searchFields: ['assignee'],
+  defaultSort: { key: 'assignee', dir: 'asc' },
+  defaultPageSize: 10
+})
+
 watch(mode, load)
 </script>
 
@@ -84,7 +105,9 @@ watch(mode, load)
 
     <p v-if="error" class="error">{{ error }}</p>
 
-    <template v-if="data">
+    <div v-if="loading" class="empty-state">Loading team performance...</div>
+
+    <template v-else-if="data">
       <div class="summary-cards">
         <div class="card">
           <span class="card-label">Active Members</span>
@@ -92,11 +115,11 @@ watch(mode, load)
         </div>
         <div class="card card--blue">
           <span class="card-label">{{ mode === 'points' ? 'Total Effort' : 'Total Items' }}</span>
-          <span class="card-value">{{ mode === 'points' ? data.summary.totalEffort.toFixed(1) : data.summary.totalEffort }}</span>
+          <span class="card-value">{{ mode === 'points' ? formatHours(data.summary.totalEffort) : data.summary.totalEffort }}</span>
         </div>
         <div class="card card--green">
           <span class="card-label">{{ mode === 'points' ? 'Total Actual' : 'Total Closed' }}</span>
-          <span class="card-value">{{ mode === 'points' ? data.summary.totalActual.toFixed(1) : data.summary.totalActual }}</span>
+          <span class="card-value">{{ mode === 'points' ? formatHours(data.summary.totalActual) : data.summary.totalActual }}</span>
         </div>
         <div class="card">
           <span class="card-label">Items Closed</span>
@@ -105,27 +128,61 @@ watch(mode, load)
       </div>
 
       <div class="table-wrapper">
+        <div class="table-controls-row">
+          <input
+            type="text"
+            v-model="searchQuery"
+            placeholder="Search assignee..."
+            class="search-input"
+          />
+        </div>
+        
         <table class="data-table">
           <thead>
             <tr>
-              <th></th>
-              <th>Assignee</th>
-              <th>{{ mode === 'points' ? 'Effort' : 'Items' }}</th>
-              <th>{{ mode === 'points' ? 'Actual' : 'Closed' }}</th>
-              <th>Closed</th>
-              <th>{{ mode === 'points' ? 'Share' : 'Share %' }}</th>
+              <th style="width: 40px"></th>
+              <th @click="setSort('assignee')" class="sort-header">
+                Assignee
+                <span class="sort-icon" v-if="sortKey === 'assignee'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('totalEffort')" class="sort-header">
+                {{ mode === 'points' ? 'Effort' : 'Items' }}
+                <span class="sort-icon" v-if="sortKey === 'totalEffort'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('totalActual')" class="sort-header">
+                {{ mode === 'points' ? 'Actual' : 'Closed' }}
+                <span class="sort-icon" v-if="sortKey === 'totalActual'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('closedCount')" class="sort-header">
+                Closed
+                <span class="sort-icon" v-if="sortKey === 'closedCount'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('share')" class="sort-header">
+                {{ mode === 'points' ? 'Share' : 'Share %' }}
+                <span class="sort-icon" v-if="sortKey === 'share'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
               <th>Progress</th>
             </tr>
           </thead>
           <tbody>
-            <template v-for="m in data.members" :key="m.assignee">
+            <template v-for="m in paginatedMembers" :key="m.assignee">
               <tr class="member-row" @click="toggleRow(m.assignee)" :class="{ expanded: isOpen(m.assignee) }">
                 <td class="expand-cell">
                   <span v-if="m.items.length" class="expand-icon" :class="{ open: isOpen(m.assignee) }">&#9654;</span>
                 </td>
                 <td class="name-cell">{{ m.assignee }}</td>
-                <td>{{ m.totalEffort.toFixed(1) }}</td>
-                <td>{{ m.totalActual.toFixed(1) }}</td>
+                <td>{{ mode === 'points' ? formatHours(m.totalEffort) : m.totalEffort }}</td>
+                <td>{{ mode === 'points' ? formatHours(m.totalActual) : m.totalActual }}</td>
                 <td>{{ m.closedCount }}</td>
                 <td>{{ m.share }}%</td>
                 <td class="progress-cell">
@@ -154,8 +211,8 @@ watch(mode, load)
                         <td>{{ item.title }}</td>
                         <td><span class="status-badge" :class="statusClass(item.status)">{{ item.status }}</span></td>
                         <td>{{ item.type }}</td>
-                        <td>{{ item.effort ?? '-' }}</td>
-                        <td>{{ item.actual_time ?? '-' }}</td>
+                        <td>{{ item.effort != null ? (mode === 'points' ? formatHours(item.effort) : item.effort) : '-' }}</td>
+                        <td>{{ item.actual_time != null ? (mode === 'points' ? formatHours(item.actual_time) : item.actual_time) : '-' }}</td>
                         <td>{{ item.closed_at ? item.closed_at.slice(0, 10) : '-' }}</td>
                       </tr>
                     </tbody>
@@ -163,12 +220,48 @@ watch(mode, load)
                 </td>
               </tr>
             </template>
+            <tr v-if="rawMembers.length === 0 || paginatedMembers.length === 0">
+              <td colspan="7" class="empty-state">No team statistics found.</td>
+            </tr>
           </tbody>
         </table>
+
+        <!-- Pagination Controls -->
+        <div class="pagination-controls" v-if="rawMembers.length > 0" style="padding: 12px 16px; border-top: 1px solid #e0e0e0;">
+          <span>
+            Showing {{ (currentPage - 1) * 10 + 1 }} to
+            {{ Math.min(currentPage * 10, rawMembers.length) }}
+            of {{ rawMembers.length }} team members
+          </span>
+          <div class="pagination-buttons" v-if="totalPages > 1">
+            <button
+              @click="prevPage"
+              :disabled="currentPage === 1"
+              class="pagination-btn"
+            >
+              Previous
+            </button>
+            <button
+              v-for="page in totalPages"
+              :key="page"
+              @click="currentPage = page"
+              :disabled="currentPage === page"
+              class="pagination-btn"
+              :style="currentPage === page ? { backgroundColor: '#0747a6', color: '#fff' } : {}"
+            >
+              {{ page }}
+            </button>
+            <button
+              @click="nextPage"
+              :disabled="currentPage === totalPages"
+              class="pagination-btn"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
     </template>
-
-    <p v-else-if="!loading && !error">No team data available.</p>
   </div>
 </template>
 
@@ -372,4 +465,69 @@ watch(mode, load)
 .status-done     { background: #e3fcef; color: #006644; }
 .status-progress { background: #eae6ff; color: #403294; }
 .status-todo     { background: #f4f5f7; color: #5e6c84; }
+
+.table-controls-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  background: #f4f5f7;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.search-input {
+  padding: 5px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 200px;
+  outline: none;
+}
+.search-input:focus {
+  border-color: #0747a6;
+}
+
+.sort-header {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.sort-header:hover {
+  background: #e9ecf0;
+}
+.sort-icon {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  color: #0747a6;
+}
+
+.pagination-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #5e6c84;
+}
+.pagination-buttons {
+  display: flex;
+  gap: 4px;
+}
+.pagination-btn {
+  padding: 3px 8px;
+  border: 1px solid #dfe1e6;
+  background: #fff;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: #505f79;
+}
+.pagination-btn:hover:not(:disabled) {
+  background: #f4f5f7;
+  color: #0747a6;
+}
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 </style>

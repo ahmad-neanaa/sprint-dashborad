@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useApi } from '@/composables/useApi'
 import { useSprintSelector } from '@/composables/useSprintSelector'
-import type { OverviewResponse } from '@/types'
+import { useDataTable } from '@/composables/useDataTable'
+import { formatHours } from '@/utils/format'
+import type { OverviewResponse, BurndownItem } from '@/types'
 import TimeSelector from '@/components/TimeSelector.vue'
 
 const { getOverview } = useApi()
@@ -41,6 +43,25 @@ function statusClass(status: string): string {
 }
 
 const { sprint, sprints, project, selectionMode, startDate, endDate, issueType, issueTypes } = useSprintSelector(load)
+
+// DataTable setup for stories
+const rawStories = computed(() => data.value?.stories ?? [])
+const {
+  searchQuery,
+  sortKey,
+  sortDir,
+  currentPage,
+  processedItems: paginatedStories,
+  totalPages,
+  setSort,
+  nextPage,
+  prevPage
+} = useDataTable<BurndownItem>(rawStories, {
+  searchFields: ['title', 'assignee', 'status', 'type'],
+  defaultSort: { key: 'number', dir: 'asc' },
+  defaultPageSize: 10
+})
+
 watch(mode, load)
 </script>
 
@@ -71,7 +92,9 @@ watch(mode, load)
 
     <p v-if="error" class="error">{{ error }}</p>
 
-    <template v-if="data">
+    <div v-if="loading" class="empty-state">Loading sprint overview...</div>
+
+    <template v-else-if="data">
       <div class="summary-cards">
         <div class="card">
           <span class="card-label">Total Stories</span>
@@ -91,7 +114,10 @@ watch(mode, load)
         </div>
         <div class="card card--green">
           <span class="card-label">{{ mode === 'points' ? 'Delivered / Target' : 'Done / Total' }}</span>
-          <span class="card-value">{{ mode === 'points' ? data.summary.effortDelivered.toFixed(0) : data.summary.doneStories }} / {{ mode === 'points' ? data.summary.effortTotal : data.summary.totalStories }}</span>
+          <span class="card-value">
+            {{ mode === 'points' ? formatHours(data.summary.effortDelivered) : data.summary.doneStories }} /
+            {{ mode === 'points' ? formatHours(data.summary.effortTotal) : data.summary.totalStories }}
+          </span>
           <span class="card-sub">{{ data.summary.percentComplete }}%</span>
         </div>
         <div class="card">
@@ -101,20 +127,64 @@ watch(mode, load)
       </div>
 
       <div class="table-wrapper">
+        <div class="table-controls-row">
+          <input
+            type="text"
+            v-model="searchQuery"
+            placeholder="Search stories..."
+            class="search-input"
+          />
+        </div>
+
         <table class="data-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Title</th>
-              <th>Status</th>
-              <th>Type</th>
-              <th>Effort</th>
-              <th>Actual</th>
-              <th>Assignee</th>
+              <th @click="setSort('number')" class="sort-header">
+                #
+                <span class="sort-icon" v-if="sortKey === 'number'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('title')" class="sort-header">
+                Title
+                <span class="sort-icon" v-if="sortKey === 'title'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('status')" class="sort-header">
+                Status
+                <span class="sort-icon" v-if="sortKey === 'status'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('type')" class="sort-header">
+                Type
+                <span class="sort-icon" v-if="sortKey === 'type'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('effort')" class="sort-header" style="text-align: right;">
+                Effort
+                <span class="sort-icon" v-if="sortKey === 'effort'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('actual_time')" class="sort-header" style="text-align: right;">
+                Actual
+                <span class="sort-icon" v-if="sortKey === 'actual_time'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th @click="setSort('assignee')" class="sort-header">
+                Assignee
+                <span class="sort-icon" v-if="sortKey === 'assignee'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="s in data.stories" :key="s.number">
+            <tr v-for="s in paginatedStories" :key="s.number">
               <td>
                 <a :href="s.url" target="_blank" class="issue-link">#{{ s.number }}</a>
               </td>
@@ -123,16 +193,52 @@ watch(mode, load)
                 <span class="status-badge" :class="statusClass(s.status)">{{ s.status }}</span>
               </td>
               <td>{{ s.type }}</td>
-              <td>{{ s.effort ?? '-' }}</td>
-              <td>{{ s.actual_time ?? '-' }}</td>
+              <td style="text-align: right;">{{ s.effort != null ? formatHours(s.effort) : '-' }}</td>
+              <td style="text-align: right; font-weight: 600;">{{ s.actual_time != null ? formatHours(s.actual_time) : '-' }}</td>
               <td>{{ s.assignee ?? '-' }}</td>
+            </tr>
+            <tr v-if="rawStories.length === 0 || paginatedStories.length === 0">
+              <td colspan="7" class="empty-state">No stories found.</td>
             </tr>
           </tbody>
         </table>
+
+        <!-- Pagination Controls -->
+        <div class="pagination-controls" v-if="rawStories.length > 0" style="padding: 12px 16px; border-top: 1px solid #e0e0e0;">
+          <span>
+            Showing {{ (currentPage - 1) * 10 + 1 }} to
+            {{ Math.min(currentPage * 10, rawStories.length) }}
+            of {{ rawStories.length }} stories
+          </span>
+          <div class="pagination-buttons" v-if="totalPages > 1">
+            <button
+              @click="prevPage"
+              :disabled="currentPage === 1"
+              class="pagination-btn"
+            >
+              Previous
+            </button>
+            <button
+              v-for="page in totalPages"
+              :key="page"
+              @click="currentPage = page"
+              :disabled="currentPage === page"
+              class="pagination-btn"
+              :style="currentPage === page ? { backgroundColor: '#0747a6', color: '#fff' } : {}"
+            >
+              {{ page }}
+            </button>
+            <button
+              @click="nextPage"
+              :disabled="currentPage === totalPages"
+              class="pagination-btn"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
     </template>
-
-    <p v-else-if="!loading && !error">No data for this sprint.</p>
   </div>
 </template>
 
@@ -233,7 +339,7 @@ watch(mode, load)
 
 .data-table th,
 .data-table td {
-  padding: 8px 12px;
+  padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid #e0e0e0;
   font-size: 13px;
@@ -275,4 +381,69 @@ watch(mode, load)
 .status-done     { background: #e3fcef; color: #006644; }
 .status-progress { background: #eae6ff; color: #403294; }
 .status-todo     { background: #f4f5f7; color: #5e6c84; }
+
+.table-controls-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  background: #f4f5f7;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.search-input {
+  padding: 5px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 200px;
+  outline: none;
+}
+.search-input:focus {
+  border-color: #0747a6;
+}
+
+.sort-header {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.sort-header:hover {
+  background: #e9ecf0;
+}
+.sort-icon {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  color: #0747a6;
+}
+
+.pagination-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #5e6c84;
+}
+.pagination-buttons {
+  display: flex;
+  gap: 4px;
+}
+.pagination-btn {
+  padding: 3px 8px;
+  border: 1px solid #dfe1e6;
+  background: #fff;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: #505f79;
+}
+.pagination-btn:hover:not(:disabled) {
+  background: #f4f5f7;
+  color: #0747a6;
+}
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 </style>

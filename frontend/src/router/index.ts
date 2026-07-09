@@ -28,24 +28,14 @@ const router = createRouter({
       component: () => import('@/views/OverviewView.vue'),
     },
     {
-      path: '/cycle-time',
-      name: 'Cycle Time',
-      component: () => import('@/views/CycleTimeView.vue'),
-    },
-    {
       path: '/time-analysis',
       name: 'Time Analysis',
       component: () => import('@/views/TimeAnalysisView.vue'),
     },
     {
-      path: '/kpi-review',
-      name: 'KPI Review',
-      component: () => import('@/views/KpiReviewView.vue'),
-    },
-    {
-      path: '/stability',
-      name: 'Stability',
-      component: () => import('@/views/StabilityView.vue'),
+      path: '/quality',
+      name: 'Quality',
+      component: () => import('@/views/QualityView.vue'),
     },
     {
       path: '/scorecard',
@@ -53,19 +43,14 @@ const router = createRouter({
       component: () => import('@/views/ScorecardView.vue'),
     },
     {
-      path: '/defects',
-      name: 'Defects',
-      component: () => import('@/views/DefectsView.vue'),
-    },
-    {
-      path: '/commitment-assignee',
-      name: 'Commit by Assignee',
-      component: () => import('@/views/CommitAssigneeView.vue'),
-    },
-    {
       path: '/commitment',
       name: 'Commitment',
       component: () => import('@/views/CommitmentView.vue'),
+    },
+    {
+      path: '/timesheet',
+      name: 'Timesheet',
+      component: () => import('@/views/TimesheetView.vue'),
     },
     {
       path: '/config',

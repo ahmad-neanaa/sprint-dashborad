@@ -48,18 +48,15 @@ onMounted(loadProjects)
 <template>
   <div class="app">
     <nav class="nav">
+      <RouterLink to="/overview" class="nav-link">Overview</RouterLink>
       <RouterLink to="/burndown" class="nav-link">Burndown</RouterLink>
       <RouterLink to="/velocity" class="nav-link">Velocity</RouterLink>
-      <RouterLink to="/overview" class="nav-link">Overview</RouterLink>
-      <RouterLink to="/cycle-time" class="nav-link">Cycle</RouterLink>
-      <RouterLink to="/time-analysis" class="nav-link">Time</RouterLink>
-      <RouterLink to="/team" class="nav-link">Team</RouterLink>
-      <RouterLink to="/stability" class="nav-link">Stability</RouterLink>
+      <RouterLink to="/commitment" class="nav-link">Commitment</RouterLink>
+      <RouterLink to="/time-analysis" class="nav-link">Time Analysis</RouterLink>
+      <RouterLink to="/quality" class="nav-link">Quality</RouterLink>
       <RouterLink to="/scorecard" class="nav-link">Scorecard</RouterLink>
-      <RouterLink to="/kpi-review" class="nav-link">KPI Review</RouterLink>
-      <RouterLink to="/defects" class="nav-link">Defects</RouterLink>
-      <RouterLink to="/commitment" class="nav-link">Commit</RouterLink>
-      <RouterLink to="/commitment-assignee" class="nav-link">Commit/Asgn</RouterLink>
+      <RouterLink to="/team" class="nav-link">Team</RouterLink>
+      <RouterLink to="/timesheet" class="nav-link">Timesheet</RouterLink>
       <RouterLink to="/config" class="nav-link">Config</RouterLink>
       <div class="project-selector">
         <select v-model="project">

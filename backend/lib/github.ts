@@ -381,7 +381,7 @@ export async function refreshProject(project: ProjectConfig): Promise<{ itemsCou
 
   const upsertItem = db.prepare(`
     INSERT INTO items (github_id, title, number, url, type, status, effort, actual_time, assignee, sprint_id, project_id, closed_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(github_id) DO UPDATE SET
       title = excluded.title,
       number = excluded.number,
@@ -394,6 +394,7 @@ export async function refreshProject(project: ProjectConfig): Promise<{ itemsCou
       sprint_id = excluded.sprint_id,
       project_id = excluded.project_id,
       closed_at = excluded.closed_at,
+      created_at = excluded.created_at,
       updated_at = datetime('now')
     RETURNING id
   `)
@@ -421,6 +422,7 @@ export async function refreshProject(project: ProjectConfig): Promise<{ itemsCou
       item.sprint ? (sprintMap.get(item.sprint) ?? null) : null,
       project.id,
       item.closed_at,
+      item.created_at,
     ) as { id: number } | undefined
 
     if (row?.id) {

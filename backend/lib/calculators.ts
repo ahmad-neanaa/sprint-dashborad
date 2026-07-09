@@ -1,5 +1,34 @@
 import { getDb } from './db'
 
+export function getActualTimeSql(doneStatus: string, inProgressStatus: string) {
+  const ds = doneStatus.replace(/'/g, "''");
+  const ips = inProgressStatus.replace(/'/g, "''");
+  return `
+    COALESCE(
+      i.actual_time,
+      CASE WHEN i.sprint_id IS NOT NULL THEN
+        CASE WHEN i.status = '${ds}' OR i.status = '${ips}' OR (SELECT COUNT(*) FROM item_transitions t WHERE t.item_id = i.id AND t.status = '${ips}') > 0 THEN
+          MAX(0, julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(
+            MAX(
+              (SELECT start_date FROM sprints s WHERE s.id = i.sprint_id),
+              COALESCE((SELECT MIN(t.start_date) FROM item_transitions t WHERE t.item_id = i.id AND t.status = '${ips}'), '')
+            )
+          )) * 8
+        ELSE 0 END
+      ELSE
+        CASE WHEN i.status = '${ds}' THEN
+          COALESCE(
+            (SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8 FROM item_transitions t WHERE t.item_id = i.id AND t.status = '${ips}'),
+            (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+          )
+        ELSE
+          COALESCE((SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8 FROM item_transitions t WHERE t.item_id = i.id AND t.status = '${ips}'), 0)
+        END
+      END
+    )`;
+}
+
+
 function getProjectId(projectName?: string): number | null {
   if (!projectName) return null
   const row = getDb().prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as { id: number } | undefined
@@ -104,27 +133,12 @@ export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issu
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-              COALESCE(
-                (
-                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                  FROM item_transitions t
-                  WHERE t.item_id = i.id AND t.status = ?
-                ),
-                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-              )
-            ELSE
-              COALESCE((
-                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-                FROM item_transitions t
-                WHERE t.item_id = i.id AND t.status = ?
-              ), 0)
-            END) as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
             i.assignee, i.closed_at
           FROM items i
           WHERE i.sprint_id = ? ${sprintProjectFilter.sql} ${typeFilter.sql}`
       )
-      .all(doneStatus, inProgressStatus, inProgressStatus, sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as BurndownItem[]
+      .all(sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as BurndownItem[]
   } else if (startDate && endDate) {
     startStr = startDate
     const start = new Date(startDate)
@@ -133,27 +147,12 @@ export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issu
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-              COALESCE(
-                (
-                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                  FROM item_transitions t
-                  WHERE t.item_id = i.id AND t.status = ?
-                ),
-                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-              )
-            ELSE
-              COALESCE((
-                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-                FROM item_transitions t
-                WHERE t.item_id = i.id AND t.status = ?
-              ), 0)
-            END) as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
             i.assignee, i.closed_at
           FROM items i
           WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}`
       )
-      .all(doneStatus, inProgressStatus, inProgressStatus, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as BurndownItem[]
+      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as BurndownItem[]
   } else {
     return null
   }
@@ -244,24 +243,9 @@ export function buildVelocity(mode: 'points' | 'issues' = 'points', projectName?
   let countExpr = ''
   if (mode === 'points') {
     countExpr = `COALESCE(SUM(CASE WHEN i.status = ? THEN 
-        COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-          COALESCE(
-            (
-              SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-              FROM item_transitions t
-              WHERE t.item_id = i.id AND t.status = ?
-            ),
-            (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-          )
-        ELSE
-          COALESCE((
-            SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-            FROM item_transitions t
-            WHERE t.item_id = i.id AND t.status = ?
-          ), 0)
-        END)
+        ${getActualTimeSql(doneStatus, inProgressStatus)}
        ELSE 0 END), 0)`
-    bindParams.push(doneStatus, doneStatus, inProgressStatus, inProgressStatus)
+    bindParams.push(doneStatus)
   } else {
     countExpr = "COUNT(CASE WHEN i.status = ? THEN 1 END)"
     bindParams.push(doneStatus)
@@ -301,29 +285,14 @@ export function buildVelocity(mode: 'points' | 'issues' = 'points', projectName?
     const items = db
       .prepare(
         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-           COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-             COALESCE(
-               (
-                 SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                 FROM item_transitions t
-                 WHERE t.item_id = i.id AND t.status = ?
-               ),
-               (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-             )
-           ELSE
-             COALESCE((
-               SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-               FROM item_transitions t
-               WHERE t.item_id = i.id AND t.status = ?
-             ), 0)
-           END) as actual_time,
+           ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
            i.assignee, i.closed_at
          FROM items i
          WHERE i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql})
            AND i.status = ? ${typeFilter.sql}
          ORDER BY i.closed_at`
       )
-      .all(doneStatus, inProgressStatus, inProgressStatus, latest.sprint, ...projectFilter.params, doneStatus, ...typeFilter.params) as BurndownItem[]
+      .all(latest.sprint, ...projectFilter.params, doneStatus, ...typeFilter.params) as BurndownItem[]
 
     currentSprint = {
       title: latest.sprint,
@@ -417,28 +386,13 @@ export function buildOverview(sprintTitle: string | null, mode: 'points' | 'issu
     stories = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-              COALESCE(
-                (
-                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                  FROM item_transitions t
-                  WHERE t.item_id = i.id AND t.status = ?
-                ),
-                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-              )
-            ELSE
-              COALESCE((
-                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-                FROM item_transitions t
-                WHERE t.item_id = i.id AND t.status = ?
-              ), 0)
-            END) as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
             i.assignee, i.closed_at
           FROM items i
           WHERE i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.type, i.title`
       )
-      .all(doneStatus, inProgressStatus, inProgressStatus, sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params, ...typeFilter.params) as OverviewStory[]
+      .all(sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params, ...typeFilter.params) as OverviewStory[]
   } else if (startDate && endDate) {
     startStr = startDate
     const start = new Date(startDate)
@@ -447,28 +401,13 @@ export function buildOverview(sprintTitle: string | null, mode: 'points' | 'issu
     stories = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-              COALESCE(
-                (
-                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                  FROM item_transitions t
-                  WHERE t.item_id = i.id AND t.status = ?
-                ),
-                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-              )
-            ELSE
-              COALESCE((
-                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-                FROM item_transitions t
-                WHERE t.item_id = i.id AND t.status = ?
-              ), 0)
-            END) as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
             i.assignee, i.closed_at
           FROM items i
           WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.type, i.title`
       )
-      .all(doneStatus, inProgressStatus, inProgressStatus, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as OverviewStory[]
+      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as OverviewStory[]
   } else {
     return null
   }
@@ -583,54 +522,24 @@ export function buildTimeAnalysis(sprintTitle: string | null, mode: 'points' | '
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-              COALESCE(
-                (
-                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                  FROM item_transitions t
-                  WHERE t.item_id = i.id AND t.status = ?
-                ),
-                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-              )
-            ELSE
-              COALESCE((
-                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-                FROM item_transitions t
-                WHERE t.item_id = i.id AND t.status = ?
-              ), 0)
-            END) as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
             i.assignee, i.closed_at
           FROM items i
           WHERE i.sprint_id = ? ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
       )
-      .all(doneStatus, inProgressStatus, inProgressStatus, sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as typeof items
+      .all(sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as typeof items
   } else if (startDate && endDate) {
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-              COALESCE(
-                (
-                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                  FROM item_transitions t
-                  WHERE t.item_id = i.id AND t.status = ?
-                ),
-                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-              )
-            ELSE
-              COALESCE((
-                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-                FROM item_transitions t
-                WHERE t.item_id = i.id AND t.status = ?
-              ), 0)
-            END) as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
             i.assignee, i.closed_at
           FROM items i
           WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
       )
-      .all(doneStatus, inProgressStatus, inProgressStatus, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as typeof items
+      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as typeof items
   } else {
     return null
   }
@@ -1009,53 +918,25 @@ export function buildCommitmentByAssignee(
 
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee,
-            CASE WHEN i.status = ? THEN
-              COALESCE(
-                (
-                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date)))
-                  FROM item_transitions t
-                  WHERE t.item_id = i.id AND t.status = ?
-                ),
-                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at))
-              )
-            ELSE
-              COALESCE((
-                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date))
-                FROM item_transitions t
-                WHERE t.item_id = i.id AND t.status = ?
-              ), 0)
-            END as in_progress_days
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
+            i.assignee, i.closed_at
           FROM items i
           WHERE i.sprint_id = ? AND i.assignee IS NOT NULL ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
       )
-      .all(doneStatus, inProgressStatus, inProgressStatus, sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as any[]
+      .all(sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as any[]
   } else if (startDate && endDate) {
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee,
-            CASE WHEN i.status = ? THEN
-              COALESCE(
-                (
-                  SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date)))
-                  FROM item_transitions t
-                  WHERE t.item_id = i.id AND t.status = ?
-                ),
-                (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at))
-              )
-            ELSE
-              COALESCE((
-                SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date))
-                FROM item_transitions t
-                WHERE t.item_id = i.id AND t.status = ?
-              ), 0)
-            END as in_progress_days
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
+            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
+            i.assignee, i.closed_at
           FROM items i
           WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) AND i.assignee IS NOT NULL ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
       )
-      .all(doneStatus, inProgressStatus, inProgressStatus, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as any[]
+      .all(endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as any[]
   } else {
     return null
   }
@@ -1069,7 +950,7 @@ export function buildCommitmentByAssignee(
     }
     const m = assigneeMap.get(name)!
     
-    const resolvedActualTime = i.actual_time ?? ((i as any).in_progress_days * 8)
+    const resolvedActualTime = i.actual_time ?? 0
 
     m.estimated += mode === 'points' ? (i.effort ?? 0) : 1
     m.actual += (i.status === doneStatus) ? (mode === 'points' ? (resolvedActualTime ?? 0) : 1) : 0
@@ -1627,22 +1508,7 @@ export function buildTeamStats(
          i.assignee,
          COALESCE(SUM(i.effort), 0) AS totalEffort,
          COALESCE(SUM(
-           COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-             COALESCE(
-               (
-                 SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                 FROM item_transitions t
-                 WHERE t.item_id = i.id AND t.status = ?
-               ),
-               (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-             )
-           ELSE
-             COALESCE((
-               SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-               FROM item_transitions t
-               WHERE t.item_id = i.id AND t.status = ?
-             ), 0)
-           END)
+           ${getActualTimeSql(doneStatus, inProgressStatus)}
          ), 0) AS totalActual,
          COUNT(CASE WHEN i.status = ? THEN 1 END) AS closedCount
        FROM items i
@@ -1651,27 +1517,12 @@ export function buildTeamStats(
        GROUP BY i.assignee
        ORDER BY i.assignee`
     )
-    .all(doneStatus, inProgressStatus, inProgressStatus, doneStatus, ...sprintParams, ...sprintProjectFilter.params, ...typeFilter.params) as { assignee: string; totalEffort: number; totalActual: number; closedCount: number }[]
+    .all(doneStatus, ...sprintParams, ...sprintProjectFilter.params, ...typeFilter.params) as { assignee: string; totalEffort: number; totalActual: number; closedCount: number }[]
 
   const memberStatements = sprintTitle
     ? db.prepare(
         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-           COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-             COALESCE(
-               (
-                 SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                 FROM item_transitions t
-                 WHERE t.item_id = i.id AND t.status = ?
-               ),
-               (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-             )
-           ELSE
-             COALESCE((
-               SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-               FROM item_transitions t
-               WHERE t.item_id = i.id AND t.status = ?
-             ), 0)
-           END) as actual_time,
+           ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
            i.assignee, i.closed_at
          FROM items i
          JOIN sprints s ON i.sprint_id = s.id
@@ -1682,22 +1533,7 @@ export function buildTeamStats(
     : (startDate && endDate)
     ? db.prepare(
         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-           COALESCE(i.actual_time, CASE WHEN i.status = ? THEN
-             COALESCE(
-               (
-                 SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8
-                 FROM item_transitions t
-                 WHERE t.item_id = i.id AND t.status = ?
-               ),
-               (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
-             )
-           ELSE
-             COALESCE((
-               SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8
-               FROM item_transitions t
-               WHERE t.item_id = i.id AND t.status = ?
-             ), 0)
-           END) as actual_time,
+           ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
            i.assignee, i.closed_at
          FROM items i
          WHERE i.assignee = ? AND i.assignee IS NOT NULL
@@ -1710,9 +1546,9 @@ export function buildTeamStats(
     let items: TeamMemberItem[] = []
     if (memberStatements) {
       if (sprintTitle) {
-        items = memberStatements.all(doneStatus, inProgressStatus, inProgressStatus, m.assignee, sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params, ...typeFilter.params) as TeamMemberItem[]
+        items = memberStatements.all(m.assignee, sprintTitle, ...projectFilter.params, ...sprintProjectFilter.params, ...typeFilter.params) as TeamMemberItem[]
       } else if (startDate && endDate) {
-        items = memberStatements.all(doneStatus, inProgressStatus, inProgressStatus, m.assignee, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as TeamMemberItem[]
+        items = memberStatements.all(m.assignee, endDate + ' 23:59:59', startDate + ' 00:00:00', ...sprintProjectFilter.params, ...typeFilter.params) as TeamMemberItem[]
       }
     }
     const eff = mode === 'issues' ? items.length : m.totalEffort

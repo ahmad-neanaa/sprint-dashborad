@@ -364,3 +364,31 @@ export interface ConfigResponse {
 export interface SprintsResponse {
   sprints: string[]
 }
+
+export interface TimesheetTask {
+  title: string
+  number: number
+  url: string
+  type: string
+  status: string
+  effort: number | null
+  actual_time: number | null
+}
+
+export interface TimesheetAssignee {
+  assignee: string
+  totalActual: number
+  taskCount: number
+  tasks: TimesheetTask[]
+}
+
+export interface TimesheetResponse {
+  sprint: string
+  summary: {
+    totalActual: number
+    assigneesCount: number
+    tasksCount: number
+  }
+  assignees: TimesheetAssignee[]
+}
+
