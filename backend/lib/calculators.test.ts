@@ -147,4 +147,31 @@ describe('calculators', () => {
     const item4Commit = aliceCommitment?.items.find(i => i.title === 'Bug 2')
     expect(item4Commit?.actual_time).toBe(24)
   })
+
+  it('buildTimesheet in sprint mode', () => {
+    const data = calculators.buildTimesheet('Sprint 1', 'Test Project')
+    expect(data).toBeDefined()
+    expect(data?.summary.totalActual).toBe(8) // Alice (7) + Bob (1) = 8
+    expect(data?.summary.assigneesCount).toBe(2) // Alice and Bob
+    expect(data?.summary.tasksCount).toBe(4) // 3 Alice tasks + 1 Bob task
+
+    const alice = data?.assignees.find(a => a.assignee === 'Alice')
+    expect(alice).toBeDefined()
+    expect(alice?.totalActual).toBe(7) // Story 1 (4) + Bug 2 (3) + Story 2 (0)
+    expect(alice?.taskCount).toBe(3)
+    expect(alice?.tasks).toHaveLength(3)
+
+    const bob = data?.assignees.find(a => a.assignee === 'Bob')
+    expect(bob).toBeDefined()
+    expect(bob?.totalActual).toBe(1)
+    expect(bob?.taskCount).toBe(1)
+  })
+
+  it('buildTimesheet in date range mode', () => {
+    const data = calculators.buildTimesheet(null, 'Test Project', '2026-06-01', '2026-06-15')
+    expect(data).toBeDefined()
+    expect(data?.summary.totalActual).toBe(8)
+    expect(data?.summary.assigneesCount).toBe(2)
+  })
 })
+
