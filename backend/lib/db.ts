@@ -2,7 +2,11 @@ import Database from 'better-sqlite3'
 import fs from 'fs'
 import path from 'path'
 
-const DB_PATH = path.join(process.cwd(), 'data', 'sprint-dashboard.db')
+const DB_PATH = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'sprint-dashboard.db')
+const dbDir = path.dirname(DB_PATH)
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true })
+}
 
 let db: Database.Database | null = null
 

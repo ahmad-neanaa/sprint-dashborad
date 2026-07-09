@@ -25,7 +25,9 @@ export function useSelectedProject(): Ref<string> {
   return inject(PROJECT_KEY, ref(''))
 }
 
-const BASE = '/api'
+const BASE = typeof window !== 'undefined' && window.location.protocol === 'file:'
+  ? 'http://localhost:3001/api'
+  : '/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url)
