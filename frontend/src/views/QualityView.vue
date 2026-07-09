@@ -400,7 +400,10 @@ const defectAssigneeChartOptions = computed(() => ({
             </thead>
             <tbody>
               <tr v-for="item in paginatedDefects" :key="item.number">
-                <td><a :href="item.url" target="_blank" class="task-link">#{{ item.number }} - {{ item.title }}</a></td>
+                <td>
+                  <a :href="item.url" target="_blank" class="task-link">#{{ item.number }} - {{ item.title }}</a>
+                  <span v-if="item.is_carry_over" class="badge badge-orange" style="margin-left: 8px; font-size: 10px; padding: 2px 6px; text-transform: uppercase;">Carry Over</span>
+                </td>
                 <td><span :class="statusClass(item.status)">{{ item.status }}</span></td>
                 <td>{{ item.assignee ?? '-' }}</td>
                 <td style="text-align: right;">{{ item.effort ?? '-' }}</td>

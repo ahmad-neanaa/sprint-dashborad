@@ -181,6 +181,7 @@ function stateClass(s: string) {
                             <a :href="task.url" target="_blank" class="task-link">
                               #{{ task.number }} - {{ task.title }}
                             </a>
+                            <span v-if="task.is_carry_over" class="badge badge-orange" style="margin-left: 8px; font-size: 10px; padding: 2px 6px; text-transform: uppercase;">Carry Over</span>
                           </td>
                           <td>
                             <span class="badge badge-gray">{{ task.type }}</span>

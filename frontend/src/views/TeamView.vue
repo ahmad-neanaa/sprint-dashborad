@@ -208,7 +208,10 @@ watch(mode, load)
                     <tbody>
                       <tr v-for="item in m.items" :key="item.number">
                         <td><a :href="item.url" target="_blank" class="issue-link">#{{ item.number }}</a></td>
-                        <td>{{ item.title }}</td>
+                        <td>
+                          {{ item.title }}
+                          <span v-if="item.is_carry_over" class="badge badge-orange" style="margin-left: 8px; font-size: 10px; padding: 2px 6px; text-transform: uppercase;">Carry Over</span>
+                        </td>
                         <td><span class="status-badge" :class="statusClass(item.status)">{{ item.status }}</span></td>
                         <td>{{ item.type }}</td>
                         <td>{{ item.effort != null ? (mode === 'points' ? formatHours(item.effort) : item.effort) : '-' }}</td>

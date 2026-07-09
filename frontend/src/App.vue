@@ -354,6 +354,7 @@ body {
 .badge-red { background: #fee2e2; color: #dc2626; }
 .badge-purple { background: #eae6ff; color: #403294; }
 .badge-gray { background: #f4f5f7; color: #5e6c84; }
+.badge-orange { background: #ffebe6; color: #de350b; }
 
 .card {
   background: #fff;

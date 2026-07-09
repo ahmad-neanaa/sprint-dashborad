@@ -23,6 +23,7 @@ export interface BurndownItem {
   actual_time: number | null
   assignee: string | null
   closed_at: string | null
+  is_carry_over?: number | boolean
 }
 
 export interface BurndownResponse {
@@ -186,6 +187,7 @@ export interface CommitAssigneeItem {
   status: string
   effort: number | null
   actual_time: number | null
+  is_carry_over?: number | boolean
 }
 
 export interface CommitAssigneeStat {
@@ -374,6 +376,7 @@ export interface TimesheetTask {
   state: string
   effort: number | null
   actual_time: number | null
+  is_carry_over?: number | boolean
 }
 
 export interface TimesheetAssignee {

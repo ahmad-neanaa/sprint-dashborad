@@ -188,7 +188,10 @@ watch(mode, load)
               <td>
                 <a :href="s.url" target="_blank" class="issue-link">#{{ s.number }}</a>
               </td>
-              <td class="title-cell">{{ s.title }}</td>
+              <td class="title-cell">
+                {{ s.title }}
+                <span v-if="s.is_carry_over" class="badge badge-orange" style="margin-left: 8px; font-size: 10px; padding: 2px 6px; text-transform: uppercase;">Carry Over</span>
+              </td>
               <td>
                 <span class="status-badge" :class="statusClass(s.status)">{{ s.status }}</span>
               </td>

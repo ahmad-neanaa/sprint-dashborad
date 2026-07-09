@@ -86,6 +86,17 @@ When building the backend, refactor them into separate `lib/calculators.ts` modu
 - Frontend views must destructure `selectionMode`, `startDate`, and `endDate` from `useSprintSelector()` and pass them appropriately to API client calls.
 - Backend API endpoints must handle both parameters, passing `startDate`/`endDate` (in ISO string format `YYYY-MM-DD`) to calculators when `sprint` is not specified.
 
+### 11. Actual Time Calculation Rules
+When modifying business logic for "Actual Time" calculations (currently encapsulated in `backend/lib/calculators.ts` -> `getActualTimeSql`):
+- **Sprint Assigned Tasks**: For tasks assigned to a sprint, actual time calculation starts from whichever came *later*: the Sprint's Start Date or the task's first "In Progress" transition date.
+- **Ghost Hours Prevention**: Tasks that are in a "To Do" state (i.e., they have no "In Progress" transition and are not "Done") must always accrue **0 hours**, even if they are assigned to an active sprint. Do not allow tasks to accrue elapsed time simply by being in an active sprint.
+- **Backlog Tasks**: Tasks without a sprint fall back to the first "In Progress" transition date (or `created_at` if missing).
+
+### 12. Carry Over Calculation Rules
+When calculating whether a task is "Carry Over" (encapsulated in `backend/lib/calculators.ts` -> `getIsCarryOverSql`):
+- **Carry Over Definition**: A task is considered a carry over if it was created before the sprint start date (`created_at < sprint.start_date || ' 00:00:00'`) OR if it has a transition to "In Progress" prior to the sprint start date.
+- **Views Display**: Any view displaying task item lists (e.g. Burndown, Overview, Team, Commitment, Quality, and Timesheet) must show a Jira-style orange badge next to the task title if the task is flagged as a carryover.
+
 ## Interacting with the Agent
 - When you ask the agent to implement a feature, it will propose changes to both frontend and backend.
 - The agent will respect the folder structure and TypeScript conventions.

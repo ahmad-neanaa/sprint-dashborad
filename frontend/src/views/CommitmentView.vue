@@ -362,7 +362,10 @@ function statusClass(s: string) {
                       </thead>
                       <tbody>
                         <tr v-for="item in a.items" :key="item.title">
-                          <td><a :href="item.url" target="_blank">{{ item.title }}</a></td>
+                          <td>
+                            <a :href="item.url" target="_blank">{{ item.title }}</a>
+                            <span v-if="item.is_carry_over" class="badge badge-orange" style="margin-left: 8px; font-size: 10px; padding: 2px 6px; text-transform: uppercase;">Carry Over</span>
+                          </td>
                           <td>{{ item.type }}</td>
                           <td><span :class="statusClass(item.status)">{{ item.status }}</span></td>
                           <td>{{ item.effort != null ? formatHours(item.effort) : '-' }}</td>

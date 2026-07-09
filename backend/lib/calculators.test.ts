@@ -177,5 +177,52 @@ describe('calculators', () => {
     expect(data?.summary.totalActual).toBe(8)
     expect(data?.summary.assigneesCount).toBe(2)
   })
+
+  it('calculates carry over correctly', () => {
+    // 1. Item created before sprint (sprint start is 2026-06-01)
+    mockDb.prepare(`
+      INSERT INTO items (github_id, title, number, url, type, status, state, effort, actual_time, assignee, sprint_id, project_id, created_at)
+      VALUES (105, 'Carry Over 1', 5, 'url', 'issue', 'To Do', 'open', 3, null, 'Alice', 1, 1, '2026-05-15 12:00:00')
+    `).run()
+
+    // 2. Item created after sprint start (2026-06-02) but moved to In Progress before sprint (2026-05-25)
+    mockDb.prepare(`
+      INSERT INTO items (id, github_id, title, number, url, type, status, state, effort, actual_time, assignee, sprint_id, project_id, created_at)
+      VALUES (206, 206, 'Carry Over 2', 6, 'url', 'issue', 'In Progress', 'open', 3, null, 'Bob', 1, 1, '2026-06-02 12:00:00')
+    `).run()
+    mockDb.prepare(`
+      INSERT INTO item_transitions (item_id, status, start_date, end_date)
+      VALUES (206, 'In Progress', '2026-05-25 10:00:00', null)
+    `).run()
+
+    // 3. Normal item created after sprint start (2026-06-02) and no early transitions
+    mockDb.prepare(`
+      INSERT INTO items (id, github_id, title, number, url, type, status, state, effort, actual_time, assignee, sprint_id, project_id, created_at)
+      VALUES (207, 207, 'New Item', 7, 'url', 'issue', 'To Do', 'open', 3, null, 'Bob', 1, 1, '2026-06-02 12:00:00')
+    `).run()
+
+    const data = calculators.buildBurndown('Sprint 1', 'points', 'Test Project')
+    expect(data).toBeDefined()
+    const item5 = data?.items.find(i => i.number === 5)
+    const item6 = data?.items.find(i => i.number === 6)
+    const item7 = data?.items.find(i => i.number === 7)
+
+    expect(item5?.is_carry_over).toBe(1)
+    expect(item6?.is_carry_over).toBe(1)
+    expect(item7?.is_carry_over).toBe(0)
+
+    const tsData = calculators.buildTimesheet('Sprint 1', 'Test Project')
+    expect(tsData).toBeDefined()
+    const aliceTasks = tsData?.assignees.find(a => a.assignee === 'Alice')?.tasks || []
+    const bobTasks = tsData?.assignees.find(a => a.assignee === 'Bob')?.tasks || []
+
+    const tsItem5 = aliceTasks.find(t => t.number === 5)
+    const tsItem6 = bobTasks.find(t => t.number === 6)
+    const tsItem7 = bobTasks.find(t => t.number === 7)
+
+    expect(tsItem5?.is_carry_over).toBe(1)
+    expect(tsItem6?.is_carry_over).toBe(1)
+    expect(tsItem7?.is_carry_over).toBe(0)
+  })
 })
 

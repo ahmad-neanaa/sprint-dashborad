@@ -28,6 +28,22 @@ export function getActualTimeSql(doneStatus: string, inProgressStatus: string) {
     )`;
 }
 
+export function getIsCarryOverSql(sprintStartDate: string, inProgressStatus: string) {
+  const sd = sprintStartDate.replace(/'/g, "''");
+  const ips = inProgressStatus.replace(/'/g, "''");
+  return `
+    CASE WHEN i.created_at < '${sd}' || ' 00:00:00'
+         OR EXISTS (
+           SELECT 1 FROM item_transitions t 
+           WHERE t.item_id = i.id 
+             AND t.status = '${ips}' 
+             AND t.start_date < '${sd}' || ' 00:00:00'
+         )
+         THEN 1 ELSE 0 END
+  `;
+}
+
+
 
 function getProjectId(projectName?: string): number | null {
   if (!projectName) return null
@@ -102,6 +118,7 @@ export interface BurndownItem {
   actual_time: number | null
   assignee: string | null
   closed_at: string | null
+  is_carry_over?: number | boolean
 }
 
 export interface BurndownData {
@@ -134,7 +151,8 @@ export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issu
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
             ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
-            i.assignee, i.closed_at
+            i.assignee, i.closed_at,
+            ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
           WHERE i.sprint_id = ? ${sprintProjectFilter.sql} ${typeFilter.sql}`
       )
@@ -148,7 +166,8 @@ export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issu
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
             ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
-            i.assignee, i.closed_at
+            i.assignee, i.closed_at,
+            ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
           WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}`
       )
@@ -344,6 +363,7 @@ export interface OverviewStory {
   actual_time: number | null
   assignee: string | null
   closed_at: string | null
+  is_carry_over?: number | boolean
 }
 
 export interface OverviewSummary {
@@ -387,7 +407,8 @@ export function buildOverview(sprintTitle: string | null, mode: 'points' | 'issu
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
             ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
-            i.assignee, i.closed_at
+            i.assignee, i.closed_at,
+            ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
           WHERE i.sprint_id = (SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.type, i.title`
@@ -402,7 +423,8 @@ export function buildOverview(sprintTitle: string | null, mode: 'points' | 'issu
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
             ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
-            i.assignee, i.closed_at
+            i.assignee, i.closed_at,
+            ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
           WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.type, i.title`
@@ -870,6 +892,7 @@ export interface CommitAssigneeItem {
   effort: number | null
   actual_time: number | null
   assignee: string | null
+  is_carry_over?: number | boolean
 }
 
 export interface CommitAssigneeStat {
@@ -908,30 +931,35 @@ export function buildCommitmentByAssignee(
   const sprintProjectFilter = getSprintProjectFilter(projectName)
   const typeFilter = getIssueTypeFilter(issueType)
 
+  let startStr: string
   let items: CommitAssigneeItem[]
 
   if (sprintTitle) {
     const sprint = db
-      .prepare(`SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
-      .get(sprintTitle, ...projectFilter.params) as { id: number } | undefined
+      .prepare(`SELECT id, start_date FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+      .get(sprintTitle, ...projectFilter.params) as { id: number; start_date: string } | undefined
     if (!sprint) return null
+    startStr = sprint.start_date
 
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
             ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
-            i.assignee, i.closed_at
+            i.assignee, i.closed_at,
+            ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
           WHERE i.sprint_id = ? AND i.assignee IS NOT NULL ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
       )
       .all(sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as any[]
   } else if (startDate && endDate) {
+    startStr = startDate
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
             ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
-            i.assignee, i.closed_at
+            i.assignee, i.closed_at,
+            ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
           WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) AND i.assignee IS NOT NULL ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.assignee, i.title`
@@ -1034,30 +1062,36 @@ function defectsRating(rate: number): 'Good' | 'Fair' | 'Poor' {
 export function buildDefects(sprintTitle: string | null, projectName?: string, startDate?: string, endDate?: string, issueType?: string): DefectData | null {
   const db = getDb()
   const doneStatus = getDoneValue(projectName)
+  const inProgressStatus = getInProgressValue(projectName)
   const projectFilter = getProjectFilter(projectName)
   const sprintProjectFilter = getSprintProjectFilter(projectName)
   const typeFilter = getIssueTypeFilter(issueType)
 
   let items: BurndownItem[]
+  let startStr: string
 
   if (sprintTitle) {
     const sprint = db
-      .prepare(`SELECT id FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
-      .get(sprintTitle, ...projectFilter.params) as { id: number } | undefined
+      .prepare(`SELECT id, start_date FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+      .get(sprintTitle, ...projectFilter.params) as { id: number; start_date: string } | undefined
     if (!sprint) return null
+    startStr = sprint.start_date
 
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at,
+            ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
           WHERE i.sprint_id = ? ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.title`
       )
       .all(sprint.id, ...sprintProjectFilter.params, ...typeFilter.params) as BurndownItem[]
   } else if (startDate && endDate) {
+    startStr = startDate
     items = db
       .prepare(
-         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at
+         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort, i.actual_time, i.assignee, i.closed_at,
+            ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
           WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
           ORDER BY i.status, i.title`
@@ -1519,11 +1553,22 @@ export function buildTeamStats(
     )
     .all(doneStatus, ...sprintParams, ...sprintProjectFilter.params, ...typeFilter.params) as { assignee: string; totalEffort: number; totalActual: number; closedCount: number }[]
 
+  let startStr = ''
+  if (sprintTitle) {
+    const sprint = db
+      .prepare(`SELECT start_date FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
+      .get(sprintTitle, ...projectFilter.params) as { start_date: string } | undefined
+    startStr = sprint?.start_date || ''
+  } else if (startDate) {
+    startStr = startDate
+  }
+
   const memberStatements = sprintTitle
     ? db.prepare(
         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
-           i.assignee, i.closed_at
+           i.assignee, i.closed_at,
+           ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
          FROM items i
          JOIN sprints s ON i.sprint_id = s.id
          WHERE i.assignee = ? AND i.assignee IS NOT NULL
@@ -1534,7 +1579,8 @@ export function buildTeamStats(
     ? db.prepare(
         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
-           i.assignee, i.closed_at
+           i.assignee, i.closed_at,
+           ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
          FROM items i
          WHERE i.assignee = ? AND i.assignee IS NOT NULL
            AND i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
@@ -1695,6 +1741,7 @@ export interface TimesheetTask {
   state: string
   effort: number | null
   actual_time: number | null
+  is_carry_over?: number | boolean
 }
 
 export interface TimesheetAssignee {
@@ -1731,6 +1778,8 @@ export function buildTimesheet(
   let sprintFilter = ''
   let sprintParams = projectFilter.params
 
+  let startStr = ''
+
   if (sprintTitle) {
     const sprint = db
       .prepare(`SELECT * FROM sprints s WHERE s.title = ? ${projectFilter.sql}`)
@@ -1739,9 +1788,11 @@ export function buildTimesheet(
     if (!sprint) return null
     sprintFilter = 'AND i.sprint_id = ?'
     sprintParams = [sprint.id]
+    startStr = sprint.start_date
   } else if (startDate && endDate) {
     sprintFilter = 'AND i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?)'
     sprintParams = [endDate + ' 23:59:59', startDate + ' 00:00:00']
+    startStr = startDate
   } else {
     return null
   }
@@ -1757,7 +1808,8 @@ export function buildTimesheet(
          i.status,
          i.state,
          i.effort,
-         ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time
+         ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
+         ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
        FROM items i
        WHERE i.assignee IS NOT NULL AND i.assignee != ''
          ${sprintFilter}
@@ -1775,6 +1827,7 @@ export function buildTimesheet(
       state: string
       effort: number | null
       actual_time: number | null
+      is_carry_over: number
     }[]
 
   const assigneesMap = new Map<string, TimesheetTask[]>()
@@ -1790,7 +1843,8 @@ export function buildTimesheet(
       status: row.status,
       state: row.state,
       effort: row.effort,
-      actual_time: row.actual_time
+      actual_time: row.actual_time,
+      is_carry_over: row.is_carry_over
     })
   }
 
