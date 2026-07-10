@@ -66,7 +66,9 @@ query($id: ID!, $after: String) {
         nodes {
           id
           content {
+            __typename
             ... on Issue {
+              id
               databaseId
               title
               number
@@ -78,19 +80,11 @@ query($id: ID!, $after: String) {
                 nodes {
                   login
                   avatarUrl
-                }
-              }
-              timelineItems(first: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) {
-                nodes {
-                  ... on ProjectV2ItemStatusChangedEvent {
-                    createdAt
-                    previousStatus
-                    status
-                  }
                 }
               }
             }
             ... on PullRequest {
+              id
               databaseId
               title
               number
@@ -102,15 +96,6 @@ query($id: ID!, $after: String) {
                 nodes {
                   login
                   avatarUrl
-                }
-              }
-              timelineItems(first: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) {
-                nodes {
-                  ... on ProjectV2ItemStatusChangedEvent {
-                    createdAt
-                    previousStatus
-                    status
-                  }
                 }
               }
             }
@@ -162,6 +147,37 @@ query($id: ID!, $after: String) {
 }
 `
 
+const TIMELINE_QUERY = `
+query($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on Issue {
+      id
+      timelineItems(first: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) {
+        nodes {
+          ... on ProjectV2ItemStatusChangedEvent {
+            createdAt
+            previousStatus
+            status
+          }
+        }
+      }
+    }
+    ... on PullRequest {
+      id
+      timelineItems(first: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) {
+        nodes {
+          ... on ProjectV2ItemStatusChangedEvent {
+            createdAt
+            previousStatus
+            status
+          }
+        }
+      }
+    }
+  }
+}
+`
+
 interface PageInfo {
   hasNextPage: boolean
   endCursor: string | null
@@ -174,6 +190,8 @@ interface StatusChangeEvent {
 }
 
 interface ContentNode {
+  __typename?: string
+  id?: string
   databaseId?: number | null
   number?: number
   title?: string
@@ -299,6 +317,32 @@ export async function fetchProjectItems(
     hasNextPage = project.items.pageInfo.hasNextPage
     cursor = project.items.pageInfo.endCursor
 
+    // Gather content IDs for issues and PRs in this page
+    const contentIds: string[] = []
+    for (const node of project.items.nodes) {
+      if (!node || !node.content) continue
+      const content = node.content
+      const contentId = content.id
+      if (contentId && (content.__typename === 'Issue' || content.__typename === 'PullRequest')) {
+        contentIds.push(contentId)
+      }
+    }
+
+    // Fetch timelineItems in batches of 50 using nodes query
+    const timelineMap = new Map<string, StatusChangeEvent[]>()
+    if (contentIds.length > 0) {
+      for (let i = 0; i < contentIds.length; i += 50) {
+        const batch = contentIds.slice(i, i + 50)
+        const timelineData = await graphql<{ nodes: any[] }>(TIMELINE_QUERY, { ids: batch }, token)
+        for (const tNode of timelineData.nodes) {
+          if (tNode && tNode.id) {
+            const events = tNode.timelineItems?.nodes ?? []
+            timelineMap.set(tNode.id, events)
+          }
+        }
+      }
+    }
+
     for (const node of project.items.nodes) {
       if (!node) continue
       const content = node.content
@@ -323,7 +367,7 @@ export async function fetchProjectItems(
 
       const state = content.state ?? 'open'
       const createdAt = (content as any).createdAt ?? new Date().toISOString()
-      const timelineNodes = (content as any).timelineItems?.nodes
+      const timelineNodes = content.id ? timelineMap.get(content.id) : undefined
       const transitions = calculateTransitions(createdAt, timelineNodes, status)
 
       items.push({

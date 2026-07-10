@@ -119,6 +119,11 @@ Never use "Points" or "Story Points" in the user-facing interface (buttons, head
 ### 17. Electron External Links
 All external HTTP/HTTPS links (such as GitHub issues) must open in the user's default browser. Ensure `backend/src/main.ts` maintains listeners for `setWindowOpenHandler` and `will-navigate` on the main window's `webContents` to open them via `shell.openExternal(url)` and prevent them from opening in the Electron window.
 
+### 18. GitHub GraphQL API Ingestion Constraints
+When fetching timeline items or status change history via the GitHub GraphQL API:
+- Do not query timeline connections (e.g., `timelineItems`) nested inside `ProjectV2` queries, as GitHub silently omits/drops them for newer issues. Instead, fetch the issue/PR content IDs and query them via top-level `nodes(ids: $ids)`.
+- When using `nodes(ids: $ids)` with nested connections (like `timelineItems`), **never exceed a batch size of 50**. Requesting larger batch sizes (e.g., 100) causes GitHub's API resolver to silently drop/empty out the nested timeline connections.
+
 
 
 
