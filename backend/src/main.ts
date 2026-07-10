@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import * as path from 'path'
 import { registerIpcHandlers } from './ipc-handlers'
 
@@ -15,6 +15,23 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js')
     },
     title: 'Sprint Dashboard',
+  })
+
+  // Open external links in default browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http:') || url.startsWith('https:')) {
+      shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const isExternal = url.startsWith('http:') || url.startsWith('https:')
+    const isDevServer = url.startsWith('http://localhost:5173')
+    if (isExternal && (!isDevServer || app.isPackaged)) {
+      event.preventDefault()
+      shell.openExternal(url)
+    }
   })
 
   // Set database path to userData directory
