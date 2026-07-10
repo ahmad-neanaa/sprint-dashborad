@@ -88,9 +88,13 @@ When building the backend, refactor them into separate `lib/calculators.ts` modu
 
 ### 11. Actual Time Calculation Rules
 When modifying business logic for "Actual Time" calculations (currently encapsulated in `backend/lib/calculators.ts` -> `getActualTimeSql`):
-- **Sprint Assigned Tasks**: For tasks assigned to a sprint, actual time calculation starts from whichever came *later*: the Sprint's Start Date or the task's first "In Progress" transition date.
-- **Ghost Hours Prevention**: Tasks that are in a "To Do" state (i.e., they have no "In Progress" transition and are not "Done") must always accrue **0 hours**, even if they are assigned to an active sprint. Do not allow tasks to accrue elapsed time simply by being in an active sprint.
-- **Backlog Tasks**: Tasks without a sprint fall back to the first "In Progress" transition date (or `created_at` if missing).
+- **Active Work Time Summation**: Instead of continuous elapsed cycle time, actual time must sum the discrete time intervals spent in the "In Progress" status. Time spent in "Blocked", "To Do", or other idle states is excluded.
+- **Boundaries Clamping**: All work time intervals are strictly clamped to boundaries. 
+  - If a Date Range is selected, intervals are clamped to the `startDate` and `endDate` parameters.
+  - If a Sprint is selected (or we fall back to sprint boundaries), intervals are clamped to the Sprint's start date (for sprint-assigned items).
+  - Any work done outside the active boundaries is ignored (accrues 0 hours).
+- **No In-Progress Transitions Fallback**: For tasks that were moved directly to "Done" (without any "In Progress" transitions), the actual time is calculated as the interval between `created_at` and `closed_at`, clamped to the active boundaries.
+- **Ghost Hours Prevention**: Tasks that are in "To Do" or other idle states (no "In Progress" transition and not "Done") must always accrue **0 hours** under all boundaries.
 
 ### 12. Carry Over Calculation Rules
 When calculating whether a task is "Carry Over" (encapsulated in `backend/lib/calculators.ts` -> `getIsCarryOverSql`):
@@ -105,7 +109,7 @@ When calculating whether a task is "Carry Over" (encapsulated in `backend/lib/ca
 ### 13. Native Module Rebuilding for Electron
 When installing or updating native modules (such as `better-sqlite3`) in the Electron backend, the module must be rebuilt to match Electron's internal Node.js ABI version. 
 Always use the following pattern within the `backend` directory to rebuild:
-`npm_config_runtime=electron npm_config_target=30.0.0 npm_config_disturl=https://electronjs.org/headers npm rebuild <MODULE_NAME> --build-from-source`
+`npm_config_runtime=electron npm_config_target=43.1.0 npm_config_disturl=https://electronjs.org/headers npm rebuild <MODULE_NAME> --build-from-source`
 
 ### 14. Database Schema Verification
 When writing, migrating, or modifying SQL queries in the application code (e.g., `ipc-handlers.ts`), you MUST strictly verify the table names, column names, and relationships against the active schema definition in `backend/migrations/schema.sql`. Do not assume legacy column names are correct without checking the schema.

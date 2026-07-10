@@ -1,29 +1,43 @@
 import { getDb } from './db'
 
-export function getActualTimeSql(doneStatus: string, inProgressStatus: string) {
+export function getActualTimeSql(
+  doneStatus: string,
+  inProgressStatus: string,
+  boundaryStartDate?: string,
+  boundaryEndDate?: string
+) {
   const ds = doneStatus.replace(/'/g, "''");
   const ips = inProgressStatus.replace(/'/g, "''");
+  const bStart = boundaryStartDate ? `'${boundaryStartDate.replace(/'/g, "''")} 00:00:00'` : 'NULL';
+  const bEnd = boundaryEndDate ? `'${boundaryEndDate.replace(/'/g, "''")} 23:59:59'` : 'NULL';
+
   return `
     COALESCE(
       i.actual_time,
-      CASE WHEN i.sprint_id IS NOT NULL THEN
-        CASE WHEN i.status = '${ds}' OR i.status = '${ips}' OR (SELECT COUNT(*) FROM item_transitions t WHERE t.item_id = i.id AND t.status = '${ips}') > 0 THEN
-          MAX(0, julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(
-            MAX(
-              (SELECT start_date FROM sprints s WHERE s.id = i.sprint_id),
-              COALESCE((SELECT MIN(t.start_date) FROM item_transitions t WHERE t.item_id = i.id AND t.status = '${ips}'), '')
-            )
-          )) * 8
-        ELSE 0 END
-      ELSE
-        CASE WHEN i.status = '${ds}' THEN
+      CASE 
+        -- Case 1: Issue has In Progress transitions (sum active duration, clamped to boundaries)
+        WHEN (SELECT COUNT(*) FROM item_transitions t WHERE t.item_id = i.id AND t.status = '${ips}') > 0 THEN
           COALESCE(
-            (SELECT (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(MIN(t.start_date))) * 8 FROM item_transitions t WHERE t.item_id = i.id AND t.status = '${ips}'),
-            (julianday(COALESCE(i.closed_at, datetime('now'))) - julianday(i.created_at)) * 8
+            (
+              SELECT SUM(
+                MAX(0, 
+                  julianday(MIN(COALESCE(t.end_date, i.closed_at, datetime('now')), COALESCE(${bEnd}, datetime('now')))) - 
+                  julianday(MAX(t.start_date, COALESCE(${bStart}, (SELECT s.start_date || ' 00:00:00' FROM sprints s WHERE s.id = i.sprint_id), t.start_date)))
+                )
+              ) * 8
+              FROM item_transitions t 
+              WHERE t.item_id = i.id AND t.status = '${ips}'
+            ),
+            0
           )
-        ELSE
-          COALESCE((SELECT SUM(julianday(COALESCE(t.end_date, datetime('now'))) - julianday(t.start_date)) * 8 FROM item_transitions t WHERE t.item_id = i.id AND t.status = '${ips}'), 0)
-        END
+        -- Case 2: No In Progress transitions, but is Done (Created -> Done fallback, clamped to boundaries)
+        WHEN i.status = '${ds}' THEN
+          MAX(0,
+            julianday(MIN(COALESCE(i.closed_at, datetime('now')), COALESCE(${bEnd}, datetime('now')))) - 
+            julianday(MAX(i.created_at, COALESCE(${bStart}, (SELECT s.start_date || ' 00:00:00' FROM sprints s WHERE s.id = i.sprint_id), i.created_at)))
+          ) * 8
+        -- Case 3: Idle/Todo states (0 hours)
+        ELSE 0
       END
     )`;
 }
@@ -165,7 +179,7 @@ export function buildBurndown(sprintTitle: string | null, mode: 'points' | 'issu
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus, startDate, endDate)} as actual_time,
             i.assignee, i.closed_at,
             ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
@@ -422,7 +436,7 @@ export function buildOverview(sprintTitle: string | null, mode: 'points' | 'issu
     stories = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus, startDate, endDate)} as actual_time,
             i.assignee, i.closed_at,
             ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
@@ -555,7 +569,7 @@ export function buildTimeAnalysis(sprintTitle: string | null, mode: 'points' | '
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus, startDate, endDate)} as actual_time,
             i.assignee, i.closed_at
           FROM items i
           WHERE i.created_at <= ? AND (i.closed_at IS NULL OR i.closed_at >= ?) ${sprintProjectFilter.sql} ${typeFilter.sql}
@@ -957,7 +971,7 @@ export function buildCommitmentByAssignee(
     items = db
       .prepare(
          `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-            ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
+            ${getActualTimeSql(doneStatus, inProgressStatus, startDate, endDate)} as actual_time,
             i.assignee, i.closed_at,
             ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
           FROM items i
@@ -1542,7 +1556,7 @@ export function buildTeamStats(
          i.assignee,
          COALESCE(SUM(i.effort), 0) AS totalEffort,
          COALESCE(SUM(
-           ${getActualTimeSql(doneStatus, inProgressStatus)}
+           ${getActualTimeSql(doneStatus, inProgressStatus, (startDate && !sprintTitle) ? startDate : undefined, (endDate && !sprintTitle) ? endDate : undefined)}
          ), 0) AS totalActual,
          COUNT(CASE WHEN i.status = ? THEN 1 END) AS closedCount
        FROM items i
@@ -1578,7 +1592,7 @@ export function buildTeamStats(
     : (startDate && endDate)
     ? db.prepare(
         `SELECT i.title, i.number, i.url, i.type, i.status, i.effort,
-           ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
+           ${getActualTimeSql(doneStatus, inProgressStatus, startDate, endDate)} as actual_time,
            i.assignee, i.closed_at,
            ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
          FROM items i
@@ -1808,7 +1822,7 @@ export function buildTimesheet(
          i.status,
          i.state,
          i.effort,
-         ${getActualTimeSql(doneStatus, inProgressStatus)} as actual_time,
+         ${getActualTimeSql(doneStatus, inProgressStatus, (!sprintTitle && startDate) ? startDate : undefined, (!sprintTitle && endDate) ? endDate : undefined)} as actual_time,
          ${getIsCarryOverSql(startStr, inProgressStatus)} as is_carry_over
        FROM items i
        WHERE i.assignee IS NOT NULL AND i.assignee != ''
