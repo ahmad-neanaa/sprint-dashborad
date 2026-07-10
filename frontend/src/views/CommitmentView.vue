@@ -238,8 +238,8 @@ function statusClass(s: string) {
       </div>
 
       <div class="mode-toggle">
-        <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Points</button>
-        <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+        <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Estimated Hours</button>
+        <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Number of Issues</button>
       </div>
     </div>
 

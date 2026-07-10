@@ -181,7 +181,6 @@ onMounted(load)
             <label>Done value <input v-model="form.done_value" /></label>
             <label>In Progress value <input v-model="form.in_progress_value" /></label>
             <label>Story value <input v-model="form.story_value" /></label>
-            <label>Points field <input v-model="form.points_field" /></label>
           </div>
         </fieldset>
 

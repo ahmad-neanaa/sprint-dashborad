@@ -164,8 +164,8 @@ watch(issueType, load)
           </select>
         </div>
         <div class="mode-toggle">
-          <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
-          <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+          <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Estimated Hours</button>
+          <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Number of Issues</button>
         </div>
         <button class="btn-refresh" @click="load" :disabled="loading">
           {{ loading ? 'Loading...' : 'Refresh' }}

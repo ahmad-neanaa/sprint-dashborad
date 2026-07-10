@@ -272,10 +272,9 @@ watch(activeSubTab, load)
           :issueTypes="issueTypes"
           @change="load"
         />
-        <!-- Mode toggle only relevant for effort view -->
         <div v-if="activeSubTab === 'effort'" class="mode-toggle">
-          <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Effort (hrs)</button>
-          <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Issues</button>
+          <button :class="{ active: mode === 'points' }" @click="mode = 'points'">Estimated Hours</button>
+          <button :class="{ active: mode === 'issues' }" @click="mode = 'issues'">Number of Issues</button>
         </div>
       </div>
     </div>
