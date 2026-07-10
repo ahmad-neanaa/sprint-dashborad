@@ -2,19 +2,16 @@
   "name": "sprint-dashboard",
   "version": "1.0.0",
   "description": "Sprint Dashboard desktop application",
-  "main": "electron-main.js",
+  "main": "backend/dist/main.js",
   "scripts": {
     "frontend:build": "npm run build --prefix frontend",
     "backend:build": "npm run build --prefix backend",
     "build": "npm run frontend:build && npm run backend:build",
-    "electron:dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\" \"wait-on http://localhost:5173 && wait-on backend/dist/main.js && electron .\"",
     "package": "npm run build && electron-builder"
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
-    "next": "^14.2.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
@@ -26,10 +23,10 @@
     "appId": "com.sprint.dashboard",
     "productName": "SprintDashboard",
     "files": [
-      "electron-main.js",
       "frontend/dist/**/*",
-      "backend/**/*",
-      "!backend/node_modules/**/*"
+      "backend/dist/**/*",
+      "backend/package.json",
+      "backend/src/lib/migrations/**/*"
     ],
     "asar": true,
     "asarUnpack": [

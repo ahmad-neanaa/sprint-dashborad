@@ -21,18 +21,18 @@ export function getDb(): Database.Database {
 
 export function runMigrations(): void {
   const database = getDb()
-  
+
   // Check if it is a brand new database (no tables exist yet)
   const tableCount = (database.prepare("SELECT count(*) as count FROM sqlite_master WHERE type='table'").get() as { count: number }).count
   const isNewDb = tableCount === 0
 
   const schema = fs.readFileSync(
-    path.join(process.cwd(), 'migrations', 'schema.sql'),
+    path.join(process.cwd(), "backend", 'migrations', 'schema.sql'),
     'utf-8'
   )
   database.exec(schema)
 
-  const migDir = path.join(process.cwd(), 'migrations')
+  const migDir = path.join(process.cwd(), "backend", 'migrations')
   if (!fs.existsSync(migDir)) return
 
   const files = fs.readdirSync(migDir)

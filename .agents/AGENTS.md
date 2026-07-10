@@ -101,3 +101,11 @@ When calculating whether a task is "Carry Over" (encapsulated in `backend/lib/ca
 - When you ask the agent to implement a feature, it will propose changes to both frontend and backend.
 - The agent will respect the folder structure and TypeScript conventions.
 - If clarification is needed, the agent will ask before making assumptions.
+
+### 13. Native Module Rebuilding for Electron
+When installing or updating native modules (such as `better-sqlite3`) in the Electron backend, the module must be rebuilt to match Electron's internal Node.js ABI version. 
+Always use the following pattern within the `backend` directory to rebuild:
+`npm_config_runtime=electron npm_config_target=30.0.0 npm_config_disturl=https://electronjs.org/headers npm rebuild <MODULE_NAME> --build-from-source`
+
+### 14. Database Schema Verification
+When writing, migrating, or modifying SQL queries in the application code (e.g., `ipc-handlers.ts`), you MUST strictly verify the table names, column names, and relationships against the active schema definition in `backend/migrations/schema.sql`. Do not assume legacy column names are correct without checking the schema.

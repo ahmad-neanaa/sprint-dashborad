@@ -1,6 +1,6 @@
 # Memory — Sprint Dashboard
 
-**Stack**: Vue 3 + Vite + Chart.js (frontend :5173) → proxy → Next.js + better-sqlite3 (backend :3001)
+**Stack**: Vue 3 + Vite + Chart.js (frontend) → Electron IPC (contextBridge) → Native Node.js + better-sqlite3 (backend)
 
 **DB**: `backend/data/sprint-dashboard.db`
 - `projects` — id, name, github_project_id, github_token, expected_hours, all field mappings, done_value
@@ -9,7 +9,7 @@
 - `config` — global: github_token, last_refreshed, refresh_interval_hours
 - `_migrations` — tracks applied migration files
 
-**Endpoints**: burndown, velocity, overview, team, time-analysis, cycle-time, commitment, commitment-assignee, defects, scorecard, stability, kpi-review, timesheet, config (GET/PUT/POST), health, refresh, sprints, projects (GET/POST/PUT/DELETE). All data endpoints accept optional `?project=`.
+**IPC Channels (window.api)**: getBurndown, getVelocity, getOverview, getTeam, getTimeAnalysis, getCycleTime, getCommitment, getCommitmentAssignee, getDefects, getScorecard, getStability, getKpiReview, getTimesheet, getConfig, updateConfig, putConfig, refreshData, getSprints, getProjects, createProject, updateProject, deleteProject. All data handlers accept optional project arguments.
 
 **KPI Thresholds**: Delivery ≥85/≥70/<70 · Defect ≤15/≤30/>30 · Cycle ≤3d/≤7d/>7d · Est Variance ≤10/≤25/>25 · Delivery CV ≤15/≤30/>30 · Velocity CV ≤15/≤30/>30
 
@@ -17,4 +17,4 @@
 
 **Styling**: Global utilities in `App.vue` unscoped (.view-container, .view-header, .sprint-selector, .kpi-row, .mode-toggle, .badge colors, etc.). Sprint selector in views, project selector in nav bar, mode toggle in relevant views (Burndown, Commitment, Velocity, Overview, Team, TimeAnalysis).
 
-**Status**: Consolidated frontend views to 8 main reports + config (Burndown, Velocity, Overview, Commitment, Time Analysis, Quality, Scorecard, Team, Timesheet). HR Timesheet view completed. Remaining: Gap 3 (unit tests for new endpoints/features), Gap 5 (auto-refresh/cron).
+**Status**: Consolidated frontend views to 8 main reports + config (Burndown, Velocity, Overview, Commitment, Time Analysis, Quality, Scorecard, Team, Timesheet). HR Timesheet view completed. Migration to Electron Native IPC (replacing Next.js) completed. Remaining: Gap 3 (unit tests for new endpoints/features), Gap 5 (auto-refresh/cron).

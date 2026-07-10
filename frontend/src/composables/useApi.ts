@@ -25,163 +25,97 @@ export function useSelectedProject(): Ref<string> {
   return inject(PROJECT_KEY, ref(''))
 }
 
-const BASE = typeof window !== 'undefined' && window.location.protocol === 'file:'
-  ? 'http://localhost:3001/api'
-  : '/api'
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url)
-  if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`)
-  }
-  return res.json()
-}
-
-function projectQuery(project?: string): string {
-  return project ? `&project=${encodeURIComponent(project)}` : ''
-}
-
-function timeParams(sprint?: string | null, startDate?: string, endDate?: string): string {
-  if (sprint) return `sprint=${encodeURIComponent(sprint)}`
-  if (startDate && endDate) return `startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`
-  return ''
-}
-
-function typeQuery(issueType?: string): string {
-  return issueType ? `&issueType=${encodeURIComponent(issueType)}` : ''
-}
-
 export function useApi() {
   function getBurndown(sprint: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<BurndownResponse> {
-    return fetchJson(`${BASE}/burndown?${timeParams(sprint, startDate, endDate)}&mode=${mode}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getBurndown({ sprint, mode, project, startDate, endDate, issueType })
   }
 
   function getVelocity(mode: 'points' | 'issues' = 'points', project?: string, issueType?: string): Promise<VelocityResponse> {
-    return fetchJson(`${BASE}/velocity?mode=${mode}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getVelocity({ mode, project, issueType })
   }
 
   function getTeam(sprint?: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<TeamResponse> {
-    const tp = timeParams(sprint, startDate, endDate)
-    const pq = project ? `&project=${encodeURIComponent(project)}` : ''
-    return fetchJson(`${BASE}/team?${tp}&mode=${mode}${pq}${typeQuery(issueType)}`)
+    return window.api.getTeam({ sprint, mode, project, startDate, endDate, issueType })
   }
 
   function getCommitmentAssignee(sprint: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<CommitAssigneeResponse> {
-    return fetchJson(`${BASE}/commitment-assignee?${timeParams(sprint, startDate, endDate)}&mode=${mode}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getCommitmentAssignee({ sprint, mode, project, startDate, endDate, issueType })
   }
 
   function getKpiReview(project?: string): Promise<KpiReviewResponse> {
-    return fetchJson(`${BASE}/kpi-review?${projectQuery(project)}`)
+    return window.api.getKpiReview({ project })
   }
 
   function getStability(sprint: string | null, project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<StabilityResponse> {
-    return fetchJson(`${BASE}/stability?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getStability({ sprint, project, startDate, endDate, issueType })
   }
 
   function getScorecard(sprint: string | null, project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<ScorecardResponse> {
-    return fetchJson(`${BASE}/scorecard?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getScorecard({ sprint, project, startDate, endDate, issueType })
   }
 
   function getDefects(sprint: string | null, project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<DefectResponse> {
-    return fetchJson(`${BASE}/defects?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getDefects({ sprint, project, startDate, endDate, issueType })
   }
 
   function getCommitment(mode: 'points' | 'issues' = 'points', project?: string, issueType?: string): Promise<CommitmentResponse> {
-    return fetchJson(`${BASE}/commitment?mode=${mode}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getCommitment({ mode, project, issueType })
   }
 
   function getCycleTime(sprint: string | null, project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<CycleTimeResponse> {
-    return fetchJson(`${BASE}/cycletime?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getCycleTime({ sprint, project, startDate, endDate, issueType })
   }
 
   function getTimeAnalysis(sprint: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<TimeAnalysisResponse> {
-    return fetchJson(`${BASE}/timeanalysis?${timeParams(sprint, startDate, endDate)}&mode=${mode}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getTimeAnalysis({ sprint, mode, project, startDate, endDate, issueType })
   }
 
   function getOverview(sprint: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<OverviewResponse> {
-    return fetchJson(`${BASE}/overview?${timeParams(sprint, startDate, endDate)}&mode=${mode}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getOverview({ sprint, mode, project, startDate, endDate, issueType })
   }
 
   function getTimesheet(sprint: string | null, project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<TimesheetResponse> {
-    return fetchJson(`${BASE}/timesheet?${timeParams(sprint, startDate, endDate)}${projectQuery(project)}${typeQuery(issueType)}`)
+    return window.api.getTimesheet({ sprint, project, startDate, endDate, issueType })
   }
 
   function getSprints(project?: string): Promise<SprintsResponse> {
-    const qs = project ? `?project=${encodeURIComponent(project)}` : ''
-    return fetchJson(`${BASE}/sprints${qs}`)
+    return window.api.getSprints({ project })
   }
 
   function getIssueTypes(project?: string): Promise<{ types: string[] }> {
-    const qs = project ? `?project=${encodeURIComponent(project)}` : ''
-    return fetchJson(`${BASE}/issue-types${qs}`)
+    return window.api.getIssueTypes({ project })
   }
 
   function getProjects(): Promise<Project[]> {
-    return fetchJson(`${BASE}/projects`)
+    return window.api.getProjects()
   }
 
   async function createProject(data: Partial<Project> & { name: string; github_project_id: string }): Promise<Project> {
-    const res = await fetch(`${BASE}/projects`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || `Create failed: ${res.status}`)
-    }
-    return res.json()
+    return window.api.createProject(data)
   }
 
   async function updateProject(data: Partial<Project> & { name: string }): Promise<Project> {
-    const res = await fetch(`${BASE}/projects`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || `Update failed: ${res.status}`)
-    }
-    return res.json()
+    return window.api.updateProject(data)
   }
 
   async function deleteProject(name: string): Promise<void> {
-    const res = await fetch(`${BASE}/projects?name=${encodeURIComponent(name)}`, { method: 'DELETE' })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || `Delete failed: ${res.status}`)
-    }
+    return window.api.deleteProject({ name })
   }
 
   function getConfig(): Promise<ConfigResponse> {
-    return fetchJson(`${BASE}/config`)
+    return window.api.getConfig()
   }
 
   async function updateConfig(key: string, value: string): Promise<void> {
-    await fetch(`${BASE}/config`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, value }),
-    })
+    return window.api.updateConfig({ key, value })
   }
 
   async function putConfig(config: Record<string, string>): Promise<ConfigResponse> {
-    const res = await fetch(`${BASE}/config`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
-    })
-    if (!res.ok) throw new Error(`Config update failed: ${res.status}`)
-    return res.json()
+    return window.api.putConfig(config)
   }
 
   async function refreshData(project?: string): Promise<{ message?: string; error?: string; details?: string }> {
-    const qs = project ? `?project=${encodeURIComponent(project)}` : ''
-    const res = await fetch(`${BASE}/refresh${qs}`, { method: 'POST' })
-    const body = await res.json()
-    if (!res.ok) throw new Error(body.details || body.error || 'Refresh failed')
-    return body
+    return window.api.refreshData({ project })
   }
 
   return { getSprints, getIssueTypes, getBurndown, getVelocity, getTeam, getOverview, getTimeAnalysis, getCycleTime, getCommitment, getCommitmentAssignee, getDefects, getScorecard, getStability, getKpiReview, getConfig, updateConfig, putConfig, refreshData, getProjects, createProject, updateProject, deleteProject, getTimesheet }
