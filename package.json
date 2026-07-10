@@ -8,7 +8,8 @@
     "backend:build": "npm run build --prefix backend",
     "build": "npm run frontend:build && npm run backend:build",
     "electron:dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\" \"wait-on http://localhost:5173 && wait-on backend/dist/main.js && electron .\"",
-    "package": "npm run build && electron-builder"
+    "package": "npm run build && electron-builder",
+    "rebuild:electron": "npm_config_runtime=electron npm_config_target=30.5.1 npm_config_disturl=https://electronjs.org/headers npm rebuild better-sqlite3 --build-from-source && npm_config_runtime=electron npm_config_target=30.5.1 npm_config_disturl=https://electronjs.org/headers npm rebuild better-sqlite3 --build-from-source --prefix backend"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0"
