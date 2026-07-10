@@ -102,5 +102,23 @@ When calculating whether a task is "Carry Over" (encapsulated in `backend/lib/ca
 - The agent will respect the folder structure and TypeScript conventions.
 - If clarification is needed, the agent will ask before making assumptions.
 
+### 13. Native Module Rebuilding for Electron
+When installing or updating native modules (such as `better-sqlite3`) in the Electron backend, the module must be rebuilt to match Electron's internal Node.js ABI version. 
+Always use the following pattern within the `backend` directory to rebuild:
+`npm_config_runtime=electron npm_config_target=30.0.0 npm_config_disturl=https://electronjs.org/headers npm rebuild <MODULE_NAME> --build-from-source`
+
+### 14. Database Schema Verification
+When writing, migrating, or modifying SQL queries in the application code (e.g., `ipc-handlers.ts`), you MUST strictly verify the table names, column names, and relationships against the active schema definition in `backend/migrations/schema.sql`. Do not assume legacy column names are correct without checking the schema.
+
+### 15. Project List State Synchrony
+The list of projects shown in the top navigation bar (`App.vue`) and settings (`ConfigView.vue`) must be synchronized globally. Always use the shared Vue inject/provide system composables (`useProjects` / `useProvideProjects`) to manage and fetch the project list so that any project modification reactively updates all components.
+
+### 16. UI Terminology Constraints (Hours vs. Points)
+Never use "Points" or "Story Points" in the user-facing interface (buttons, headers, inputs, text). Label the modes as "Estimated Hours" (which maps internally to the `points` parameter/effort database column) and "Number of Issues" (which maps internally to the `issues` parameter).
+
+### 17. Electron External Links
+All external HTTP/HTTPS links (such as GitHub issues) must open in the user's default browser. Ensure `backend/src/main.ts` maintains listeners for `setWindowOpenHandler` and `will-navigate` on the main window's `webContents` to open them via `shell.openExternal(url)` and prevent them from opening in the Electron window.
+
+
 
 
