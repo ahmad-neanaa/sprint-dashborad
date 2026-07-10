@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useApi } from '@/composables/useApi'
+import { useApi, useProjects } from '@/composables/useApi'
 import type { Project } from '@/types'
 
-const { getProjects, createProject, updateProject, deleteProject } = useApi()
+const { createProject, updateProject, deleteProject } = useApi()
+const { projects, loadProjects } = useProjects()
 
-const projects = ref<Project[]>([])
 const loading = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'error' | ''>('')
@@ -52,7 +52,7 @@ const showAdd = ref(false)
 async function load() {
   loading.value = true
   try {
-    projects.value = await getProjects()
+    await loadProjects()
     message.value = ''
     messageType.value = ''
   } catch (e) {

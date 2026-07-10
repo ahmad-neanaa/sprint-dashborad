@@ -25,6 +25,29 @@ export function useSelectedProject(): Ref<string> {
   return inject(PROJECT_KEY, ref(''))
 }
 
+export const PROJECTS_LIST_KEY = Symbol('projectsList')
+
+export function useProvideProjects() {
+  const projects = ref<Project[]>([])
+
+  async function loadProjects() {
+    projects.value = await window.api.getProjects()
+  }
+
+  provide(PROJECTS_LIST_KEY, { projects, loadProjects })
+  return { projects, loadProjects }
+}
+
+export function useProjects() {
+  return inject<{
+    projects: Ref<Project[]>
+    loadProjects: () => Promise<void>
+  }>(PROJECTS_LIST_KEY, {
+    projects: ref<Project[]>([]),
+    loadProjects: async () => {}
+  })
+}
+
 export function useApi() {
   function getBurndown(sprint: string | null, mode: 'points' | 'issues' = 'points', project?: string, startDate?: string, endDate?: string, issueType?: string): Promise<BurndownResponse> {
     return window.api.getBurndown({ sprint, mode, project, startDate, endDate, issueType })

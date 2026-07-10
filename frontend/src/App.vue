@@ -1,22 +1,19 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
-import { useApi, useProvideRefresh, useProvideProject } from '@/composables/useApi'
+import { useApi, useProvideRefresh, useProvideProject, useProvideProjects } from '@/composables/useApi'
 
-const { refreshData, getProjects } = useApi()
+const { refreshData } = useApi()
 const { bump } = useProvideRefresh()
 const { project } = useProvideProject()
+const { projects, loadProjects: apiLoadProjects } = useProvideProjects()
 const refreshing = ref(false)
 const msg = ref('')
-const projects = ref<{ name: string }[]>([])
 const error = ref('')
 
 async function loadProjects() {
   try {
-    projects.value = await getProjects()
-    if (projects.value.length > 0 && !project.value) {
-      project.value = projects.value[0].name
-    }
+    await apiLoadProjects()
     error.value = ''
   } catch (e) {
     error.value = String(e)
@@ -41,6 +38,16 @@ async function handleRefresh() {
 watch(project, () => {
   bump()
 })
+
+watch(projects, (newProjects) => {
+  if (newProjects.length > 0) {
+    if (!project.value || !newProjects.some(p => p.name === project.value)) {
+      project.value = newProjects[0].name
+    }
+  } else {
+    project.value = ''
+  }
+}, { immediate: true })
 
 onMounted(loadProjects)
 </script>
