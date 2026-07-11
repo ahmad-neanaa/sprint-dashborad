@@ -27,12 +27,12 @@ export function runMigrations(): void {
   const isNewDb = tableCount === 0
 
   const schema = fs.readFileSync(
-    path.join(process.cwd(), "backend", 'migrations', 'schema.sql'),
+    path.join(__dirname, '..', '..', 'migrations', 'schema.sql'),
     'utf-8'
   )
   database.exec(schema)
 
-  const migDir = path.join(process.cwd(), "backend", 'migrations')
+  const migDir = path.join(__dirname, '..', '..', 'migrations')
   if (!fs.existsSync(migDir)) return
 
   const files = fs.readdirSync(migDir)

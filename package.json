@@ -27,14 +27,18 @@
       "frontend/dist/**/*",
       "backend/dist/**/*",
       "backend/package.json",
-      "backend/src/lib/migrations/**/*"
+      "backend/migrations/**/*"
     ],
     "asar": true,
     "asarUnpack": [
-      "backend"
+      "backend",
+      "node_modules/better-sqlite3"
     ],
     "linux": {
-      "target": ["AppImage", "tar.gz"],
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
       "category": "Development"
     },
     "win": {
