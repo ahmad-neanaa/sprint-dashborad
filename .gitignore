@@ -1,5 +1,4 @@
 node_modules/
-.next/
 dist/
 *.db
 *.db-wal
@@ -10,4 +9,4 @@ dist/
 .DS_Store
 coverage/
 graphify-out/
-*.pids
+*.tsbuildinfo
